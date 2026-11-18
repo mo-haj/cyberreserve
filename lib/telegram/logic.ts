@@ -129,3 +129,45 @@ export const BOT_TEXT = {
     done: 'Signed in ✅ Go back to the website; it signs you in within a few seconds.',
   },
 } as const;
+
+/** A command such as "/bookings" or "/bookings@MyBot" (lower-cased, no bot name), or null. */
+export function parseCommand(text: string | undefined): string | null {
+  const m = /^\/([a-z_]+)(?:@\w+)?(?:\s|$)/i.exec(text?.trim() ?? '');
+  return m ? m[1].toLowerCase() : null;
+}
+
+/** The bot's "/" menu, per language (set once with setMyCommands). */
+export const BOT_COMMANDS = {
+  ar: [
+    { command: 'bookings', description: 'حجوزاتي القادمة' },
+    { command: 'support', description: 'المساعدة' },
+  ],
+  en: [
+    { command: 'bookings', description: 'My upcoming bookings' },
+    { command: 'support', description: 'Help' },
+  ],
+} as const;
+
+/** Replies to a player who is already signed in (no sign-in waiting). */
+export const MEMBER_TEXT = {
+  ar: {
+    home: (name: string, next: string | null) =>
+      `👋 أهلاً ${name}، حسابك على CyberReserve مربوط بهذا الحساب على تيليغرام.\n\n` +
+      (next ? `🎮 حجزك القادم:\n${next}\n\n` : '') +
+      `/bookings حجوزاتي القادمة\n/support المساعدة\n\nالحجز يتم من الموقع. لتسجيل الدخول على جهاز جديد اضغط "تسجيل الدخول" على الموقع.`,
+    noBookings: 'لا حجوزات قادمة. احجز جهازك من الموقع.',
+    support: (contact: string | null) =>
+      `🛟 المساعدة\n\n• لمشكلة في حجز: تواصل مع الصالة مباشرة، أو ألغِ الحجز من /bookings.\n• لتغيير اسمك أو مدينتك: صفحة "ملفي" على الموقع.\n` +
+      (contact ? `• لأي شيء آخر: ${contact}` : '• قريباً: مراسلة فريق الدعم من هنا مباشرة.'),
+  },
+  en: {
+    home: (name: string, next: string | null) =>
+      `👋 Hi ${name}, your CyberReserve account is linked to this Telegram account.\n\n` +
+      (next ? `🎮 Your next booking:\n${next}\n\n` : '') +
+      `/bookings your upcoming bookings\n/support help\n\nBooking is done on the website. To sign in on a new device, press "Sign in" on the website.`,
+    noBookings: 'No upcoming bookings. Book a station on the website.',
+    support: (contact: string | null) =>
+      `🛟 Help\n\n• A problem with a booking: contact the arena directly, or cancel it from /bookings.\n• To change your name or city: "My profile" on the website.\n` +
+      (contact ? `• Anything else: ${contact}` : '• Coming soon: message the support team right here.'),
+  },
+} as const;

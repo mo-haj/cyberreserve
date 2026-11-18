@@ -6,7 +6,8 @@
 
 export type Locale = 'ar' | 'en';
 export const LOCALES: Locale[] = ['ar', 'en'];
-export const DEFAULT_LOCALE: Locale = 'ar';
+/** Language for visitors who have not picked one yet (the switch in the header sets cr_lang). */
+export const DEFAULT_LOCALE: Locale = 'en';
 export const LOCALE_COOKIE = 'cr_lang';
 
 export function isLocale(value: unknown): value is Locale {

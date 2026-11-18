@@ -90,3 +90,28 @@ test('language buttons round-trip and stay under 64 bytes', () => {
   assert.ok(langCallback(id, 'ar').length <= 64);
   for (const bad of ['lang:abc:en', `lang:${id}:fr`, `pick:${id}:42`, undefined]) assert.equal(parseLangCallback(bad), null);
 });
+
+test('bot commands are recognised, with or without the bot name', async () => {
+  const { parseCommand, MEMBER_TEXT } = await import('../lib/telegram/logic');
+  assert.equal(parseCommand('/bookings'), 'bookings');
+  assert.equal(parseCommand('/Support@CyberReserveBot'), 'support');
+  assert.equal(parseCommand('  /start login_abc'), 'start');
+  assert.equal(parseCommand('hello'), null);
+  assert.equal(parseCommand('/'), null);
+  // Next booking shown only when there is one.
+  assert.ok(MEMBER_TEXT.en.home('Ghost', 'PC 4').includes('PC 4'));
+  assert.ok(!MEMBER_TEXT.ar.home('Ghost', null).includes('حجزك القادم'));
+});
+
+test('support contact is never the bot itself', async () => {
+  const { supportContactFor } = await import('../lib/legal');
+  const keep = { ...process.env };
+  process.env.TELEGRAM_BOT_USERNAME = 'CyberReserveBot';
+  process.env.SUPPORT_CONTACT = '@cyberreservebot';
+  assert.equal(supportContactFor(), null);
+  process.env.SUPPORT_CONTACT = 'help@example.com';
+  assert.equal(supportContactFor(), 'help@example.com');
+  delete process.env.SUPPORT_CONTACT;
+  assert.equal(supportContactFor(), null);
+  process.env = keep;
+});

@@ -222,6 +222,18 @@ export function privacyDoc(locale: 'ar' | 'en', contact: string): LegalDoc {
 }
 
 /** SUPPORT_CONTACT from .env (email, phone or @username); otherwise the bot. */
+/**
+ * SUPPORT_CONTACT for the bot to show, or null when it is unset or is this
+ * bot itself (pointing a player back to the same chat helps nobody).
+ */
+export function supportContactFor(): string | null {
+  const configured = process.env.SUPPORT_CONTACT?.trim();
+  if (!configured) return null;
+  const bot = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, '').toLowerCase();
+  if (bot && configured.replace(/^@/, '').toLowerCase() === bot) return null;
+  return configured;
+}
+
 export function supportContact(): string {
   const configured = process.env.SUPPORT_CONTACT?.trim();
   if (configured) return configured;

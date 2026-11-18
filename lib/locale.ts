@@ -1,4 +1,4 @@
-// Server-only: the visitor's language from the cr_lang cookie (Arabic by default).
+// Server-only: the visitor's language from the cr_lang cookie (DEFAULT_LOCALE, English, by default).
 import { cookies } from 'next/headers';
 import { DEFAULT_LOCALE, LOCALE_COOKIE, isLocale, type Locale } from '@/lib/i18n';
 

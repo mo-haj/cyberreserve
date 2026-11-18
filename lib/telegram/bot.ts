@@ -20,11 +20,15 @@ import { LoginStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { now } from '@/lib/time';
 import { sendText, tg } from '@/lib/telegram/api';
-import { cancelByPlayer, confirmComing, markByArena } from '@/lib/booking/service';
+import { cancelByPlayer, confirmComing, markByArena, upcomingForBot } from '@/lib/booking/service';
+import { supportContactFor } from '@/lib/legal';
 import { ARENA_TEXT, BOOKING_TEXT } from '@/lib/booking/texts';
 import {
+  BOT_COMMANDS,
   BOT_TEXT,
   LANG_BUTTONS,
+  MEMBER_TEXT,
+  parseCommand,
   MAX_CODE_ATTEMPTS,
   asBotLocale,
   botLocale,
@@ -76,7 +80,21 @@ export type TelegramUpdate = z.infer<typeof TelegramUpdate>;
 
 const REMOVE_KEYBOARD = { remove_keyboard: true };
 
+// The "/" command menu, sent to Telegram once per server start.
+let commandsSet = false;
+function ensureCommands() {
+  if (commandsSet) return;
+  commandsSet = true;
+  void Promise.all([
+    tg('setMyCommands', { commands: BOT_COMMANDS.en }),
+    tg('setMyCommands', { commands: BOT_COMMANDS.ar, language_code: 'ar' }),
+  ]).catch(() => {
+    commandsSet = false;
+  });
+}
+
 export async function handleUpdate(update: TelegramUpdate): Promise<void> {
+  ensureCommands();
   if (update.callback_query) return onCallback(update.callback_query);
   const msg = update.message;
   if (!msg?.from || msg.chat.type !== 'private') return;
@@ -140,6 +158,12 @@ async function onText(chatId: number, from: FromT, text: string) {
   });
 
   if (!request) {
+    // Already signed in before? Then this is a player we know: answer as such.
+    const me = await prisma.user.findUnique({
+      where: { telegramChatId: telegramUserId },
+      select: { id: true, name: true, nickname: true },
+    });
+    if (me) return onMember(chatId, from, me, text);
     await sendText(chatId, isBareStart(text) ? t.welcome : t.noPending, REMOVE_KEYBOARD);
     return;
   }
@@ -336,4 +360,44 @@ async function onContact(
     data: { status: LoginStatus.CONFIRMED, userId },
   });
   await sendText(chatId, t.done, REMOVE_KEYBOARD);
+}
+
+/**
+ * A message from a player who has signed in before (and has no sign-in
+ * waiting): /bookings lists what is coming with cancel buttons, /support
+ * gives help, anything else a short home message with the next booking.
+ */
+async function onMember(chatId: number, from: FromT, me: { id: string; name: string; nickname: string | null }, text: string) {
+  // The language of their last sign-in on the website, else Telegram's.
+  const last = await prisma.loginRequest.findFirst({
+    where: { telegramUserId: String(from.id) },
+    orderBy: { createdAt: 'desc' },
+    select: { locale: true },
+  });
+  const lang = last ? asBotLocale(last.locale) : botLocale(from.language_code);
+  const t = MEMBER_TEXT[lang];
+  const command = parseCommand(text);
+
+  if (command === 'support' || command === 'help') {
+    await sendText(chatId, t.support(supportContactFor()), REMOVE_KEYBOARD);
+    return;
+  }
+
+  const list = await upcomingForBot(me.id, lang);
+  if (command === 'bookings') {
+    if (list.length === 0) {
+      await sendText(chatId, t.noBookings, REMOVE_KEYBOARD);
+      return;
+    }
+    for (const b of list) {
+      await sendText(
+        chatId,
+        b.text,
+        b.canCancel ? { inline_keyboard: [[{ text: BOOKING_TEXT[lang].cancelButton, callback_data: `bp:c:${b.id}` }]] } : REMOVE_KEYBOARD,
+      );
+    }
+    return;
+  }
+
+  await sendText(chatId, t.home(me.nickname ?? me.name, list[0]?.text ?? null), REMOVE_KEYBOARD);
 }

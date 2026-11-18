@@ -4,7 +4,8 @@ A directory of **gaming arenas** across Syria with a **live station map**: playe
 free right now (green), in use (red) or out of service (grey). The map refreshes every 5 seconds.
 
 What works today:
-- **Arabic first** (right-to-left), with an **English** switch in the header. Each page shows one language.
+- **English by default**, with an **Arabic** switch in the header (right-to-left). Each page shows one language;
+  the choice is remembered (`cr_lang` cookie). Change the default in `lib/i18n.ts` (`DEFAULT_LOCALE`).
 - **Home** (`/`): the arena list (city menu for all of Syria, search by name or area, live free
   counts) next to the selected arena's live station map. On phones a row opens the arena page and
   the header folds into a ☰ menu. "How it works" opens as a pop-up. `/?city=aleppo` links to a city.
@@ -19,7 +20,9 @@ What works today:
   its details), **zones & specs** cards, prices day/night, hours, address, and photo/text sections
   that slide in.
 - **Sign in with Telegram** (`/login`): no passwords; the phone number is verified by Telegram.
-  Needs a bot token first — see "Telegram sign-in" below.
+  Needs a bot token first — see "Telegram sign-in" below. A player who has signed in before gets
+  their own answers from the bot: any message shows their next booking, `/bookings` lists upcoming
+  bookings with a cancel button, `/support` shows help (and `SUPPORT_CONTACT`, if set).
 - **Profile** (`/profile`): after the first sign-in the player must enter a **full name** and a
   unique **player name** and accept the terms; the profile page shows and edits them.
 - **Online booking:** press a station → a pop-up (a sheet from the bottom on phones) to book it

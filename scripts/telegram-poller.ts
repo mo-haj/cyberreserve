@@ -11,6 +11,37 @@ const target = process.env.TELEGRAM_POLLER_TARGET?.trim() || 'http://web:3000';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Hands one update to the site. While the site is down or restarting (e.g.
+ * during run-build.bat) it waits and tries again, so no message is lost and
+ * the bot answers as soon as the site is back. A site that answers but keeps
+ * failing (5xx/404) gets 5 tries, then the update is skipped so the bot does
+ * not stay stuck on one bad message.
+ */
+async function deliver(update: { update_id: number }, kind: string) {
+  for (let attempt = 1; ; attempt++) {
+    const res = await fetch(`${target}/api/telegram/webhook/${encodeURIComponent(secret!)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': secret! },
+      body: JSON.stringify(update),
+      signal: AbortSignal.timeout(20_000),
+    }).catch((err) => {
+      console.error(`[poller] update ${update.update_id} (${kind}): site not reachable, retrying:`, err instanceof Error ? err.message : err);
+      return null;
+    });
+    if (res && res.status < 500 && res.status !== 404) {
+      console.log(`[poller] update ${update.update_id} (${kind}) -> site ${res.status}${attempt > 1 ? ` (after ${attempt} tries)` : ''}`);
+      return;
+    }
+    if (res && attempt >= 5) {
+      console.error(`[poller] update ${update.update_id} (${kind}) skipped: site answered ${res.status} 5 times`);
+      return;
+    }
+    if (res) console.error(`[poller] update ${update.update_id} (${kind}) -> site ${res.status}, retrying`);
+    await sleep(Math.min(2_000 * attempt, 15_000));
+  }
+}
+
 async function main() {
   if (!token || !secret) {
     console.log('[poller] TELEGRAM_BOT_TOKEN or TELEGRAM_WEBHOOK_SECRET is empty in .env; nothing to do.');
@@ -46,19 +77,11 @@ async function main() {
       if (failures > 0) console.log('[poller] connected to Telegram again');
       failures = 0;
       for (const update of body.result ?? []) {
-        offset = update.update_id + 1;
         // Kind only, never content: enough to follow a sign-in in the logs.
         const kind = Object.keys(update).filter((k) => k !== 'update_id').join(',');
-        const res = await fetch(`${target}/api/telegram/webhook/${encodeURIComponent(secret)}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': secret },
-          body: JSON.stringify(update),
-          signal: AbortSignal.timeout(15_000),
-        }).catch((err) => {
-          console.error(`[poller] update ${update.update_id} (${kind}) NOT delivered to the site:`, err instanceof Error ? err.message : err);
-          return null;
-        });
-        if (res) console.log(`[poller] update ${update.update_id} (${kind}) -> site ${res.status}`);
+        await deliver(update, kind);
+        // Only now is it safe to tell Telegram we have it (next getUpdates).
+        offset = update.update_id + 1;
       }
     } catch (err) {
       failures += 1;

@@ -195,6 +195,24 @@ export async function listMyBookings(userId: string) {
 }
 export type MyBooking = Awaited<ReturnType<typeof listMyBookings>>[number];
 
+/** For the bot: a player's bookings that have not ended yet, soonest first, as text lines. */
+export async function upcomingForBot(userId: string, lang: BotLang, limit = 5) {
+  const at = clockNow();
+  const rows = await prisma.booking.findMany({
+    where: { userId, isWalkIn: false, status: { in: HOLDING }, endTime: { gt: at } },
+    orderBy: { startTime: 'asc' },
+    take: limit,
+    include: { device: { select: { pcNumber: true, type: true, cafeId: true, cafe: { select: { nameAr: true, nameEn: true } } } } },
+  });
+  return Promise.all(
+    rows.map(async (b) => ({
+      id: b.id,
+      canCancel: b.startTime > at,
+      text: `🏟 ${lang === 'ar' ? b.device.cafe.nameAr : b.device.cafe.nameEn}\n🎮 ${await stationName(b.device.cafeId, b.device.pcNumber, b.device.type)}\n🗓 ${formatWhen(lang, b.startTime, b.endTime)}`,
+    })),
+  );
+}
+
 /** Player cancels before the start. Returns false when it is too late or not theirs. */
 export async function cancelByPlayer(userId: string, bookingId: string): Promise<boolean> {
   const at = clockNow();
