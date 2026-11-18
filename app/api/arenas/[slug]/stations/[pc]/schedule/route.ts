@@ -3,7 +3,8 @@ import { stationSchedule } from '@/lib/booking/service';
 import { NO_STORE } from '@/lib/http';
 import { isPreview } from '@/lib/preview';
 
-// Public: when one station is taken during the next 7 days (times only, no names).
+// Public: when one station is taken during the next 7 days (times only, no
+// names), and its zone's hardware for the pop-up.
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -13,8 +14,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   if (!/^[a-z0-9-]{1,60}$/.test(slug) || !Number.isInteger(pcNumber) || pcNumber < 1 || pcNumber > 999) {
     return NextResponse.json({ error: 'invalid' }, { status: 400, headers: NO_STORE });
   }
-  if (isPreview()) return NextResponse.json({ taken: [] }, { headers: NO_STORE });
-  const taken = await stationSchedule(slug, pcNumber);
-  if (!taken) return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
-  return NextResponse.json({ taken }, { headers: NO_STORE });
+  if (isPreview()) return NextResponse.json({ taken: [], zone: null }, { headers: NO_STORE });
+  const schedule = await stationSchedule(slug, pcNumber);
+  if (!schedule) return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
+  return NextResponse.json(schedule, { headers: NO_STORE });
 }

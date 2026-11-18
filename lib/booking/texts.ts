@@ -64,7 +64,7 @@ export const BOOKING_TEXT = {
 /** Messages to arena owners and staff (Arabic: arenas are in Syria). */
 export const ARENA_TEXT = {
   newBooking: (f: BookingFacts, player: string, phone: string, city: string) =>
-    `🎮 حجز جديد\n\n👤 ${player}\n📱 ${phone}\n🏙 ${city}\n🎮 ${f.station}\n🗓 ${f.when}\n💵 ${f.price} ل.س`,
+    `🎮 حجز جديد\n\n👤 ${player}\n📱 \u2066${phone}\u2069\n🏙 ${city}\n🎮 ${f.station}\n🗓 ${f.when}\n💵 ${f.price} ل.س`,
   playerCancelled: (f: BookingFacts, player: string) => `↩️ ألغى ${player} حجزه: ${f.station}، ${f.when}. الجهاز متاح الآن.`,
   autoCancelled: (f: BookingFacts, player: string) =>
     `⌛ أُلغي حجز ${player} تلقائياً (لم يؤكد حضوره): ${f.station}، ${f.when}. الجهاز متاح الآن.`,

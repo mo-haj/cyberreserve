@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { now as clockNow, formatDamascusTime } from '@/lib/time';
 import { tg } from '@/lib/telegram/api';
 import { background } from '@/lib/background';
+import { GROUP_SELECT } from '@/lib/cafes';
 import { BOOKING, checkRequest, isBlocked, priceFor, reminderAt, type BookingCheck } from '@/lib/booking/rules';
 import { ARENA_TEXT, BOOKING_TEXT, formatWhen, type BookingFacts, type BotLang } from '@/lib/booking/texts';
 
@@ -356,7 +357,7 @@ export async function stationSchedule(slug: string, pcNumber: number) {
   const at = clockNow();
   const device = await prisma.device.findFirst({
     where: { pcNumber, archivedAt: null, cafe: { slug, isPublished: true } },
-    select: { id: true },
+    select: { id: true, group: { select: GROUP_SELECT } },
   });
   if (!device) return null;
   const rows = await prisma.booking.findMany({
@@ -369,7 +370,11 @@ export async function stationSchedule(slug: string, pcNumber: number) {
     select: { startTime: true, endTime: true },
     orderBy: { startTime: 'asc' },
   });
-  return rows.map((r) => ({ start: r.startTime.toISOString(), end: r.endTime.toISOString() }));
+  return {
+    taken: rows.map((r) => ({ start: r.startTime.toISOString(), end: r.endTime.toISOString() })),
+    /** The station's zone with its hardware, for the pop-up (null when not in a zone). */
+    zone: device.group,
+  };
 }
 
 // ------------------------------------------------------------------ minute job

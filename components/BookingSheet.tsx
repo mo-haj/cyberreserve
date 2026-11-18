@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { StationIcon } from '@/components/StationIcons';
 import type { PcView } from '@/lib/availability';
 import { BOOKING, bookableDays, isNight, overlaps, priceFor, reminderAt, slotsOn } from '@/lib/booking/rules';
-import { fieldValue, fieldsFor, groupName, type GroupView } from '@/lib/groups';
+import { fieldValue, fieldsFor, groupName, type GroupView, type SpecField } from '@/lib/groups';
 import { dictionary, type Locale } from '@/lib/i18n';
 import { formatDamascusTime, toDamascusParts } from '@/lib/time';
 
@@ -54,6 +54,9 @@ export default function BookingSheet({
   const [start, setStart] = useState<'now' | string | null>(freeNow ? 'now' : null);
   const [minutes, setMinutes] = useState(120);
   const [taken, setTaken] = useState<Taken>([]);
+  // The zone may come from the page (arena page) or from the schedule answer (home page).
+  const [zone, setZone] = useState<GroupView | null>(group);
+  const hw = group ?? zone;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ start: string; end: string; price: string } | null>(null);
@@ -65,9 +68,11 @@ export default function BookingSheet({
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/arenas/${slug}/stations/${station.pcNumber}/schedule`, { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : { taken: [] }))
-      .then((j: { taken: { start: string; end: string }[] }) => {
-        if (!cancelled) setTaken(j.taken.map((x) => ({ start: new Date(x.start), end: new Date(x.end) })));
+      .then((r) => (r.ok ? r.json() : { taken: [], zone: null }))
+      .then((j: { taken: { start: string; end: string }[]; zone?: GroupView | null }) => {
+        if (cancelled) return;
+        setTaken(j.taken.map((x) => ({ start: new Date(x.start), end: new Date(x.end) })));
+        if (j.zone) setZone(j.zone);
       })
       .catch(() => undefined);
     return () => {
@@ -151,7 +156,7 @@ export default function BookingSheet({
                 : t.status[station.status]}
               {station.hourlyRate && <span className="text-muted"> · {t.station.perHour(station.hourlyRate)}</span>}
             </p>
-            {!group && station.specs && (
+            {!hw && station.specs && (
               <p dir="ltr" className="mt-1 text-xs text-muted rtl:text-end">
                 {station.specs}
               </p>
@@ -165,7 +170,7 @@ export default function BookingSheet({
         </div>
 
         {/* Zone + its key hardware, compact: four values in two columns. */}
-        {group && !done && <HardwareStrip group={group} locale={locale} />}
+        {hw && !done && <HardwareStrip group={hw} locale={locale} />}
 
         <div className="cr-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-5">
           {done ? (
@@ -356,31 +361,64 @@ export default function BookingSheet({
 
 function HardwareStrip({ group, locale }: { group: GroupView; locale: Locale }) {
   const t = dictionary(locale);
+  const [all, setAll] = useState(false);
+  // Which part's explanation is open (tap on phones; hover opens it too).
+  const [open, setOpen] = useState<SpecField | null>(null);
   const name = groupName(group, locale);
-  const rows = fieldsFor(group.type)
-    .key.map((f) => ({ f, v: fieldValue(group, f) }))
-    .filter((r) => r.v);
+  const { key, more } = fieldsFor(group.type);
+  const pick = (fields: readonly SpecField[]) => fields.map((f) => ({ f, v: fieldValue(group, f) })).filter((r) => r.v);
+  const rows = pick(key);
+  const extra = pick(more);
   if (!name && rows.length === 0) return null;
+
+  const item = (r: { f: SpecField; v: string }) => (
+    <li key={r.f} className="relative min-w-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => (o === r.f ? null : r.f))}
+        onMouseEnter={() => setOpen(r.f)}
+        onMouseLeave={() => setOpen((o) => (o === r.f ? null : o))}
+        aria-expanded={open === r.f}
+        className={`w-full border-s-2 ps-2 text-start transition-colors ${open === r.f ? 'border-cyan' : 'border-violet/40 hover:border-cyan'}`}
+      >
+        <span className="flex items-center gap-1 text-[11px] text-muted">
+          {t.zones.fields[r.f]}
+          <span aria-hidden="true" className="grid h-3.5 w-3.5 place-items-center rounded-full text-[9px] shadow-[inset_0_0_0_1px_rgba(140,151,196,0.6)]">
+            ?
+          </span>
+        </span>
+        <span className="block truncate text-xs font-medium text-ink">
+          <bdi dir="ltr">{r.v}</bdi>
+        </span>
+      </button>
+      {open === r.f && (
+        <span
+          role="tooltip"
+          className="panel-in absolute inset-x-0 top-full z-20 mt-1.5 block bg-[#0B0F24] px-2.5 py-2 text-[11px] leading-relaxed text-ink shadow-[inset_0_0_0_1px_rgba(41,224,255,0.6),0_12px_28px_-10px_rgba(0,0,0,0.9)]"
+        >
+          {t.zones.explain[r.f]}
+        </span>
+      )}
+    </li>
+  );
+
   return (
-    <div className={`mx-5 mb-3 px-3 py-2.5 ${group.isVip ? 'bg-gold/[0.06] shadow-[inset_0_0_0_1px_rgba(255,201,77,0.4)]' : 'bg-void/50 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.3)]'}`}>
-      {name && (
-        <p className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-ink">
+    <div
+      className={`mx-5 mb-3 px-3 py-2.5 ${group.isVip ? 'bg-gold/[0.06] shadow-[inset_0_0_0_1px_rgba(255,201,77,0.4)]' : 'bg-void/50 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.3)]'}`}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="flex min-w-0 items-center gap-2 text-xs font-semibold text-ink">
           {group.isVip && <span className="bg-gold px-1.5 py-px font-hud text-[10px] font-bold text-void">{t.zones.vip}</span>}
-          {name}
+          <span className="truncate">{name || t.station.typeTitle[group.type]}</span>
         </p>
-      )}
-      {rows.length > 0 && (
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
-          {rows.map((r) => (
-            <div key={r.f} className="flex min-w-0 items-baseline gap-1.5 text-xs">
-              <dt className="shrink-0 text-muted">{t.zones.fields[r.f]}</dt>
-              <dd className="truncate text-ink">
-                <bdi dir="ltr">{r.v}</bdi>
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
+        {extra.length > 0 && (
+          <button type="button" onClick={() => setAll((x) => !x)} className="shrink-0 text-[11px] text-cyan hover:underline" aria-expanded={all}>
+            {all ? `${t.zones.less} ▴` : `${t.zones.more} ▾`}
+          </button>
+        )}
+      </div>
+      <ul className="grid grid-cols-2 gap-x-3 gap-y-2">{(all ? [...rows, ...extra] : rows).map(item)}</ul>
+      <p className="mt-2 text-[10px] text-muted/80">{t.zones.hint}</p>
     </div>
   );
 }
