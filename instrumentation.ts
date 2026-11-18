@@ -3,7 +3,9 @@
 // closing finished ones, once a minute. Set BOOKING_JOBS=off to disable.
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs' || process.env.BOOKING_JOBS === 'off') return;
-  // Preview mode has no database.
+  // Preview mode has no database. On Vercel nothing stays running between
+  // requests: there the job is called from outside (/api/cron/tick).
+  if (process.env.VERCEL) return;
   if (process.env.PREVIEW_MODE === '1' || process.env.DEV_FIXTURE_DATA === '1') return;
   const { tick } = await import('@/lib/booking/service');
   let running = false;

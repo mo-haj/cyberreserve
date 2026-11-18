@@ -154,20 +154,39 @@ export const MEMBER_TEXT = {
     home: (name: string, next: string | null) =>
       `👋 أهلاً ${name}، حسابك على CyberReserve مربوط بهذا الحساب على تيليغرام.\n\n` +
       (next ? `🎮 حجزك القادم:\n${next}\n\n` : '') +
-      `/bookings حجوزاتي القادمة\n/support المساعدة\n\nالحجز يتم من الموقع. لتسجيل الدخول على جهاز جديد اضغط "تسجيل الدخول" على الموقع.`,
+      `الحجز يتم من الموقع. لتسجيل الدخول على جهاز جديد اضغط "تسجيل الدخول" على الموقع.`,
     noBookings: 'لا حجوزات قادمة. احجز جهازك من الموقع.',
     support: (contact: string | null) =>
-      `🛟 المساعدة\n\n• لمشكلة في حجز: تواصل مع الصالة مباشرة، أو ألغِ الحجز من /bookings.\n• لتغيير اسمك أو مدينتك: صفحة "ملفي" على الموقع.\n` +
+      `🛟 المساعدة\n\n• لمشكلة في حجز: تواصل مع الصالة مباشرة، أو ألغِ الحجز من زر 📋 حجوزاتي.\n• لتغيير اسمك أو مدينتك: صفحة "ملفي" على الموقع.\n` +
       (contact ? `• لأي شيء آخر: ${contact}` : '• قريباً: مراسلة فريق الدعم من هنا مباشرة.'),
   },
   en: {
     home: (name: string, next: string | null) =>
       `👋 Hi ${name}, your CyberReserve account is linked to this Telegram account.\n\n` +
       (next ? `🎮 Your next booking:\n${next}\n\n` : '') +
-      `/bookings your upcoming bookings\n/support help\n\nBooking is done on the website. To sign in on a new device, press "Sign in" on the website.`,
+      `Booking is done on the website. To sign in on a new device, press "Sign in" on the website.`,
     noBookings: 'No upcoming bookings. Book a station on the website.',
     support: (contact: string | null) =>
-      `🛟 Help\n\n• A problem with a booking: contact the arena directly, or cancel it from /bookings.\n• To change your name or city: "My profile" on the website.\n` +
+      `🛟 Help\n\n• A problem with a booking: contact the arena directly, or cancel it from 📋 My bookings.\n• To change your name or city: "My profile" on the website.\n` +
       (contact ? `• Anything else: ${contact}` : '• Coming soon: message the support team right here.'),
   },
 } as const;
+
+/** The two buttons kept at the bottom of the chat for signed-in players. */
+export const MEMBER_BUTTONS = {
+  ar: { bookings: '📋 حجوزاتي', support: '🛟 المساعدة' },
+  en: { bookings: '📋 My bookings', support: '🛟 Help' },
+} as const;
+
+/** What a signed-in player asked for: a command or one of the buttons (either language). */
+export function memberAction(text: string | undefined): 'bookings' | 'support' | null {
+  const command = parseCommand(text);
+  if (command === 'bookings') return 'bookings';
+  if (command === 'support' || command === 'help') return 'support';
+  const t = text?.trim();
+  for (const b of Object.values(MEMBER_BUTTONS)) {
+    if (t === b.bookings) return 'bookings';
+    if (t === b.support) return 'support';
+  }
+  return null;
+}

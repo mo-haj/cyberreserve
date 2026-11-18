@@ -115,3 +115,12 @@ test('support contact is never the bot itself', async () => {
   assert.equal(supportContactFor(), null);
   process.env = keep;
 });
+
+test('the bottom buttons work in both languages, like the commands', async () => {
+  const { memberAction, MEMBER_BUTTONS } = await import('../lib/telegram/logic');
+  assert.equal(memberAction(MEMBER_BUTTONS.ar.bookings), 'bookings');
+  assert.equal(memberAction(MEMBER_BUTTONS.en.support), 'support');
+  assert.equal(memberAction('/bookings'), 'bookings');
+  assert.equal(memberAction('/help'), 'support');
+  assert.equal(memberAction('hello'), null);
+});

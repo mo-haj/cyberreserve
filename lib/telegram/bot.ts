@@ -27,8 +27,9 @@ import {
   BOT_COMMANDS,
   BOT_TEXT,
   LANG_BUTTONS,
+  MEMBER_BUTTONS,
   MEMBER_TEXT,
-  parseCommand,
+  memberAction,
   MAX_CODE_ATTEMPTS,
   asBotLocale,
   botLocale,
@@ -79,6 +80,16 @@ export const TelegramUpdate = z.object({
 export type TelegramUpdate = z.infer<typeof TelegramUpdate>;
 
 const REMOVE_KEYBOARD = { remove_keyboard: true };
+
+/** "My bookings" and "Help", always visible at the bottom of the chat once signed in. */
+function memberKeyboard(lang: 'ar' | 'en') {
+  const b = MEMBER_BUTTONS[lang];
+  return {
+    keyboard: [[{ text: b.bookings }, { text: b.support }]],
+    resize_keyboard: true,
+    is_persistent: true,
+  };
+}
 
 // The "/" command menu, sent to Telegram once per server start.
 let commandsSet = false;
@@ -204,7 +215,7 @@ async function onText(chatId: number, from: FromT, text: string) {
       where: { id: request.id, status: LoginStatus.PENDING },
       data: { status: LoginStatus.CONFIRMED, userId: user.id },
     });
-    await sendText(chatId, confirmed.count === 1 ? t.done : t.invalid, REMOVE_KEYBOARD);
+    await sendText(chatId, confirmed.count === 1 ? t.done : t.invalid, confirmed.count === 1 ? memberKeyboard(asBotLocale(request.locale)) : REMOVE_KEYBOARD);
     return;
   }
 
@@ -230,6 +241,16 @@ async function onCallback(cb: NonNullable<TelegramUpdate['callback_query']>) {
   const chatId = cb.message?.chat.id ?? cb.from.id;
   const data = cb.data ?? '';
   if (data.startsWith('bp:') || data.startsWith('bk:')) return onBookingButton(cb, chatId, data);
+  if (data === 'm:bookings' || data === 'm:support') {
+    await tg('answerCallbackQuery', { callback_query_id: cb.id });
+    const me = await prisma.user.findUnique({
+      where: { telegramChatId: String(cb.from.id) },
+      select: { id: true, name: true, nickname: true },
+    });
+    if (me) return onMember(chatId, cb.from, me, '', data === 'm:bookings' ? 'bookings' : 'support');
+    await sendText(chatId, BOT_TEXT[botLocale(cb.from.language_code)].noPending, REMOVE_KEYBOARD);
+    return;
+  }
   await tg('answerCallbackQuery', { callback_query_id: cb.id });
   const lang = parseLangCallback(cb.data);
   if (!lang) {
@@ -359,7 +380,8 @@ async function onContact(
     where: { id: request.id, status: LoginStatus.AWAITING_CONTACT },
     data: { status: LoginStatus.CONFIRMED, userId },
   });
-  await sendText(chatId, t.done, REMOVE_KEYBOARD);
+  // Signed in: the contact button goes, the "My bookings / Help" buttons come.
+  await sendText(chatId, t.done, memberKeyboard(asBotLocale(request.locale)));
 }
 
 /**
@@ -367,7 +389,13 @@ async function onContact(
  * waiting): /bookings lists what is coming with cancel buttons, /support
  * gives help, anything else a short home message with the next booking.
  */
-async function onMember(chatId: number, from: FromT, me: { id: string; name: string; nickname: string | null }, text: string) {
+async function onMember(
+  chatId: number,
+  from: FromT,
+  me: { id: string; name: string; nickname: string | null },
+  text: string,
+  pressed: 'bookings' | 'support' | null = null,
+) {
   // The language of their last sign-in on the website, else Telegram's.
   const last = await prisma.loginRequest.findFirst({
     where: { telegramUserId: String(from.id) },
@@ -376,28 +404,39 @@ async function onMember(chatId: number, from: FromT, me: { id: string; name: str
   });
   const lang = last ? asBotLocale(last.locale) : botLocale(from.language_code);
   const t = MEMBER_TEXT[lang];
-  const command = parseCommand(text);
+  const keys = memberKeyboard(lang);
+  const action = pressed ?? memberAction(text);
+  // Buttons under the message itself (tap = same as the bottom buttons).
+  const inline = {
+    inline_keyboard: [
+      [
+        { text: MEMBER_BUTTONS[lang].bookings, callback_data: 'm:bookings' },
+        { text: MEMBER_BUTTONS[lang].support, callback_data: 'm:support' },
+      ],
+    ],
+  };
 
-  if (command === 'support' || command === 'help') {
-    await sendText(chatId, t.support(supportContactFor()), REMOVE_KEYBOARD);
+  if (action === 'support') {
+    // The bottom buttons come with this reply, so they stay in the chat from now on.
+    await sendText(chatId, t.support(supportContactFor()), keys);
     return;
   }
 
   const list = await upcomingForBot(me.id, lang);
-  if (command === 'bookings') {
+  if (action === 'bookings') {
     if (list.length === 0) {
-      await sendText(chatId, t.noBookings, REMOVE_KEYBOARD);
+      await sendText(chatId, t.noBookings, keys);
       return;
     }
     for (const b of list) {
       await sendText(
         chatId,
         b.text,
-        b.canCancel ? { inline_keyboard: [[{ text: BOOKING_TEXT[lang].cancelButton, callback_data: `bp:c:${b.id}` }]] } : REMOVE_KEYBOARD,
+        b.canCancel ? { inline_keyboard: [[{ text: BOOKING_TEXT[lang].cancelButton, callback_data: `bp:c:${b.id}` }]] } : keys,
       );
     }
     return;
   }
 
-  await sendText(chatId, t.home(me.nickname ?? me.name, list[0]?.text ?? null), REMOVE_KEYBOARD);
+  await sendText(chatId, t.home(me.nickname ?? me.name, list[0]?.text ?? null), inline);
 }

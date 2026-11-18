@@ -6,6 +6,7 @@ import { cityName } from '@/lib/cities';
 import { prisma } from '@/lib/prisma';
 import { now as clockNow, formatDamascusTime } from '@/lib/time';
 import { tg } from '@/lib/telegram/api';
+import { background } from '@/lib/background';
 import { BOOKING, checkRequest, isBlocked, priceFor, reminderAt, type BookingCheck } from '@/lib/booking/rules';
 import { ARENA_TEXT, BOOKING_TEXT, formatWhen, type BookingFacts, type BotLang } from '@/lib/booking/texts';
 
@@ -137,7 +138,7 @@ export async function createBooking(input: {
   await prisma.auditLog.create({
     data: { actorType: 'PLAYER', userId: input.userId, action: 'booking.create', details: { bookingId: id, slug: input.slug, pcNumber: input.pcNumber } },
   });
-  void notifyCreated(id).catch((e) => console.error('[booking] notify failed:', e instanceof Error ? e.message : e));
+  background('booking notify', () => notifyCreated(id));
   return { ok: true, booking: { id, start: start.toISOString(), end: end.toISOString(), price: String(price) } };
 }
 
@@ -222,14 +223,14 @@ export async function cancelByPlayer(userId: string, bookingId: string): Promise
   });
   if (done.count !== 1) return false;
   await prisma.auditLog.create({ data: { actorType: 'PLAYER', userId, action: 'booking.cancel', details: { bookingId } } });
-  void (async () => {
+  background('booking cancel notify', async () => {
     const x = await facts(bookingId, 'ar');
     if (!x) return;
     const lang = (x.b.locale === 'en' ? 'en' : 'ar') as BotLang;
     const mine = lang === 'ar' ? x : await facts(bookingId, lang);
     if (x.b.user?.telegramChatId && mine) await send(x.b.user.telegramChatId, BOOKING_TEXT[lang].cancelledByYou(mine.f));
     await tellArena(x.b.device.cafeId, ARENA_TEXT.playerCancelled(x.f, playerLabel(x.b.user)));
-  })().catch(() => undefined);
+  });
   return true;
 }
 
@@ -241,10 +242,10 @@ export async function confirmComing(userId: string, bookingId: string): Promise<
     data: { stillComingAt: at },
   });
   if (done.count !== 1) return false;
-  void (async () => {
+  background('booking coming notify', async () => {
     const x = await facts(bookingId, 'ar');
     if (x) await tellArena(x.b.device.cafeId, ARENA_TEXT.playerComing(x.f, playerLabel(x.b.user)));
-  })().catch(() => undefined);
+  });
   return true;
 }
 

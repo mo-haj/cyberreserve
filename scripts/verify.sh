@@ -205,8 +205,9 @@ if [ -z "$SKIP_HTTP" ]; then
     code="$(http_code "$BASE_URL$path")"
     [ "$code" = "200" ] && ok "$path -> 200" || bad "$path -> $code (expected 200)"
   done
-  res="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$BASE_URL/profile")"
-  echo "$res" | grep -q '/login' && ok "profile asks signed-out visitors to sign in" || bad "/profile signed out: got '$res' (expected a redirect to /login)"
+  # Read the Location header itself (some Windows curl builds leave %{redirect_url} empty).
+  res="$(curl -s -o /dev/null -D - "$BASE_URL/profile" | tr -d '\r' | grep -iE '^(HTTP/|location:)' | tr '\n' ' ')"
+  echo "$res" | grep -qi 'location:.*/login' && ok "profile asks signed-out visitors to sign in" || bad "/profile signed out: got '$res' (expected a redirect to /login)"
   code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'origin: https://evil.example' -H 'content-type: application/json' -d '{}' "$BASE_URL/api/profile")"
   [ "$code" = "403" ] && ok "profile API refuses other websites (403)" || bad "cross-site profile save -> $code (expected 403)"
 
@@ -220,16 +221,16 @@ if [ -z "$SKIP_HTTP" ]; then
   echo "$body" | grep -qi 'phone\|nickname\|userId' && bad "station schedule leaks player data" || ok "station schedule shows no player data"
 
   step "Arena owner panel"
-  res="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$BASE_URL/manage")"
-  echo "$res" | grep -q '/login' && ok "owner panel asks signed-out visitors to sign in" || bad "/manage signed out: got '$res'"
+  res="$(curl -s -o /dev/null -D - "$BASE_URL/manage" | tr -d '\r' | grep -iE '^(HTTP/|location:)' | tr '\n' ' ')"
+  echo "$res" | grep -qi 'location:.*/login' && ok "owner panel asks signed-out visitors to sign in" || bad "/manage signed out: got '$res'"
   code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/manage/mezzeh-arena")"
   [ "$code" = "403" ] && ok "owner API refuses visitors who are not members (403)" || bad "owner API without sign-in -> $code"
   code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'origin: https://evil.example' -H 'content-type: application/json' -d '{"action":"freeNow","pcNumber":1}' "$BASE_URL/api/manage/mezzeh-arena")"
   [ "$code" = "403" ] && ok "owner API refuses other websites (403)" || bad "cross-site owner action -> $code"
 
-  step "Languages (Arabic default, English switch)"
-  curl -s "$BASE_URL/" | grep -q '<html lang="ar" dir="rtl"' && ok "Arabic, right-to-left by default" || bad "home page is not Arabic/RTL by default"
-  curl -s -H 'Cookie: cr_lang=en' "$BASE_URL/" | grep -q '<html lang="en" dir="ltr"' && ok "English when chosen" || bad "English cookie not honoured"
+  step "Languages (English default, Arabic switch)"
+  curl -s "$BASE_URL/" | grep -q '<html lang="en" dir="ltr"' && ok "English by default" || bad "home page is not English by default"
+  curl -s -H 'Cookie: cr_lang=ar' "$BASE_URL/" | grep -q '<html lang="ar" dir="rtl"' && ok "Arabic (right-to-left) when chosen" || bad "Arabic cookie not honoured"
   loc="$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE_URL/api/lang?to=en&next=/arenas/old-city-lan")"
   echo "$loc" | grep -q '/arenas/old-city-lan$' && ok "language switch returns to the same page" || bad "language switch went to '$loc'"
   loc="$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE_URL/api/lang?to=en&next=//evil.example")"

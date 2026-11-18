@@ -246,7 +246,33 @@ CLAUDE.md, docs/         engineering standard and the original phase prompts
 | Port 3000 busy | Stop the other program, or change the left `3000` in `docker-compose.yml`. |
 | `/admin` gives 403 locally | Correct — it is protected. For local work only, set `SKIP_ACCESS_CHECK=true` and restart. |
 
-## Preview on Vercel (show the design, no database)
+## Full site on Vercel + Neon (free, no PC needed)
+
+Everything works online: sign-in with the bot, booking, reminders, owner panel.
+Vercel runs the site, **Neon** is the database, **cron-job.org** triggers the minute job.
+(Vercel's free plan is for non-commercial use: fine for testing; move to a server for launch.)
+
+1. **Neon** (neon.tech): sign in with GitHub → create a project, region **Frankfurt**
+   (`aws-eu-central-1`, close to Vercel's `fra1` set in `vercel.json`). On the dashboard press
+   **Connect**: copy the **pooled** address (host contains `-pooler`) and the **direct** one.
+2. **Vercel** → project → **Settings → Environment Variables** (Production and Preview):
+   - `DATABASE_URL` = pooled address + `&pgbouncer=true` at the end (keep `?sslmode=require`)
+   - `DIRECT_URL` = direct address
+   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET` = same as in `.env`
+   - `CRON_SECRET` = a long random text (letters and digits, 32+)
+   - delete `PREVIEW_MODE`
+3. **Deployments → ⋯ → Redeploy**. The build (`scripts/vercel-build.mjs`) creates the tables,
+   adds the demo arenas, and points the Telegram bot at the site.
+   From then on the bot answers through Vercel; the helper on the PC shows "409" and can be stopped.
+4. **cron-job.org** (free): create a job, URL
+   `https://<your-site>/api/cron/tick?key=<CRON_SECRET>`, every **1 minute**.
+5. Make yourself an arena owner on the online database: sign in on the site once, then on the PC run
+   `scripts/add-owner.ts` with `DATABASE_URL` set to the **direct** Neon address.
+
+To go back to the bot on the PC: in a browser open
+`https://api.telegram.org/bot<TOKEN>/deleteWebhook` (with your token), then restart the helper.
+
+### Preview only (no database)
 
 Set **`PREVIEW_MODE=1`** and the site runs without a database: the 3 demo arenas
 (stations, zones, maps, games) come from `prisma/demo-data.ts`, sign-in and booking
