@@ -1,0 +1,118 @@
+# CyberReserve — web + postgres + daily backups.
+# All configuration comes from .env (see .env.example). No secrets in this file.
+#
+# Start:            docker compose up -d --build
+# With CF tunnel:   docker compose --profile tunnel up -d --build
+# Restore a backup: see RESTORE.md
+
+# Log rotation for every service: this runs unattended, logs must not fill the disk.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    logging: *default-logging
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Port 5432 is intentionally NOT published to the host.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  web:
+    build: .
+    image: cyberreserve-web
+    logging: *default-logging
+    init: true
+    # Public DNS for internet names (api.telegram.org...). Docker's default
+    # forwarding to the PC's DNS failed on the owner's PC (EAI_AGAIN), which
+    # silenced the bot. Service names (postgres, web) still resolve inside Docker.
+    dns: [1.1.1.1, 8.8.8.8]
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Loopback by default so the origin is not reachable from the network.
+      # See WEB_BIND in .env.example before changing this.
+      - "${WEB_BIND:-127.0.0.1}:3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  db-backup:
+    image: postgres:15-alpine
+    logging: *default-logging
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup.sh:/usr/local/bin/backup.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/backup.sh"]
+    # Unhealthy if there is no dump newer than 26 hours (a daily backup was missed).
+    healthcheck:
+      test: ["CMD-SHELL", "find /backups -maxdepth 1 -name 'cyberreserve_*.dump' -mmin -1560 | grep -q ."]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 5m
+
+  # Telegram sign-in WITHOUT a public address (local testing): long-polls
+  # Telegram and forwards updates to the web container's webhook route.
+  # Start with:  docker compose --profile telegram up -d
+  # In production use the real webhook instead (README, "Telegram sign-in").
+  telegram-poller:
+    # Same image as web (built by the web service); never pulled from the internet.
+    image: cyberreserve-web
+    pull_policy: never
+    profiles: ["telegram"]
+    logging: *default-logging
+    # Public DNS for internet names (api.telegram.org...). Docker's default
+    # forwarding to the PC's DNS failed on the owner's PC (EAI_AGAIN), which
+    # silenced the bot. Service names (postgres, web) still resolve inside Docker.
+    dns: [1.1.1.1, 8.8.8.8]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TELEGRAM_POLLER_TARGET: http://web:3000
+    entrypoint: ["node", "node_modules/tsx/dist/cli.mjs", "scripts/telegram-poller.ts"]
+    depends_on:
+      web:
+        condition: service_healthy
+
+  # Production only: outbound Cloudflare Tunnel, so no inbound ports are needed.
+  # In the tunnel's public hostname settings, point the service to http://web:3000
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    logging: *default-logging
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    # Public DNS for internet names (api.telegram.org...). Docker's default
+    # forwarding to the PC's DNS failed on the owner's PC (EAI_AGAIN), which
+    # silenced the bot. Service names (postgres, web) still resolve inside Docker.
+    dns: [1.1.1.1, 8.8.8.8]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  pgdata:

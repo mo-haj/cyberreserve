@@ -1,0 +1,50 @@
+name: verify
+
+# Builds the real Docker stack from zero and runs the full Phase 0 Definition of Done.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm audit
+      - run: npx prisma validate
+        env:
+          DATABASE_URL: postgresql://x:y@localhost:5432/z
+      - run: npm run typecheck
+      - run: npm test
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env with fresh secrets
+        run: sh scripts/setup-env.sh
+
+      - name: DoD 1 — build and start from zero
+        run: |
+          docker compose up -d --build --wait --wait-timeout 300 postgres web
+          docker compose up -d
+
+      - name: DoD 2-11 — verify (includes restart with volume retained)
+        run: sh scripts/verify.sh --restart
+
+      - name: Hand-written migration matches the Prisma schema
+        run: |
+          docker compose exec -T web node node_modules/prisma/build/index.js migrate diff \
+            --from-schema-datasource prisma/schema.prisma \
+            --to-schema-datamodel prisma/schema.prisma
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color

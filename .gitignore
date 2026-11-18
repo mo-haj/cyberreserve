@@ -1,0 +1,27 @@
+node_modules
+.next
+out
+.env
+.env.*
+!.env.example
+backups/*
+!backups/.gitkeep
+*.log
+*.tsbuildinfo
+.DS_Store
+run-report.log
+build.log
+# Old copies and local-only files
+cyberreserve-fix*/
+*.zip
+.vercel
+
+# Not needed in the repository (kept on this PC only)
+components/CafeCards.tsx
+components/SystemStatus.tsx
+net-test.bat
+FIX_NOTES.md
+docs/
+
+# Business plan: private, never in the repository
+PLAN.md

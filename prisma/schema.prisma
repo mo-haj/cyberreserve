@@ -1,0 +1,375 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// NOTE: the overlap lock (no_overlap_booking) and the time-order check
+// (booking_time_order) live in a raw SQL migration, not in this file:
+// prisma/migrations/20260101000100_booking_constraints/migration.sql
+// Prisma cannot express them. Do not remove that migration.
+
+enum PowerStatus {
+  ONLINE
+  OFFLINE
+  UNKNOWN
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum LoginStatus {
+  PENDING // created by the website, waiting for /start in Telegram
+  AWAITING_CONTACT // number matched, waiting for the player to share their phone
+  CONFIRMED // verified; the website may now open a session
+  CONSUMED // the session was opened; the request can never be used again
+  FAILED // wrong number tapped; cancelled
+}
+
+enum ActorType {
+  ADMIN
+  OWNER // arena owner or staff, acting in the owner panel
+  PLAYER
+  SYSTEM
+  AGENT
+}
+
+model User {
+  id              String         @id @default(uuid())
+  name            String
+  email           String?        @unique
+  phone           String?        @unique
+  telegramChatId  String?        @unique
+  /// Real full name, for the arena staff. Set on the profile page.
+  fullName        String?
+  /// Player name shown to arenas and other players.
+  nickname        String?
+  /// Lower-cased nickname, so "Ghost" and "ghost" cannot both exist.
+  nicknameKey     String?        @unique
+  termsAcceptedAt DateTime?      @db.Timestamptz(3)
+  /// City the player lives in (key from lib/cities.ts). Opens the home page
+  /// on that city and tells arena staff where the player is from.
+  homeCity        String?
+  isVip           Boolean        @default(false)
+  strikesCount    Int            @default(0)
+  isBanned        Boolean        @default(false)
+  bannedUntil     DateTime?      @db.Timestamptz(3)
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+  bookings        Booking[]
+  auditEntries    AuditLog[]
+  sessions        Session[]
+  loginRequests   LoginRequest[]
+  arenas          ArenaMember[]
+}
+
+// One "Sign in with Telegram" attempt. The browser holds a secret token (only
+// its SHA-256 is stored, as id); Telegram only ever sees shortId.
+model LoginRequest {
+  id             String      @id
+  shortId        String      @unique
+  code           Int
+  /// Wrong codes typed in Telegram; the request fails at 3.
+  attempts       Int         @default(0)
+  /// Bot language for this sign-in: the website's language, switchable in the chat.
+  locale         String      @default("ar")
+  status         LoginStatus @default(PENDING)
+  telegramUserId String?
+  userId         String?
+  createdAt      DateTime    @default(now()) @db.Timestamptz(3)
+  expiresAt      DateTime    @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([telegramUserId, status])
+  @@index([expiresAt])
+}
+
+// A signed-in browser. The cookie holds a random token; only its SHA-256 is stored.
+model Session {
+  id        String   @id
+  userId    String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// A gaming cafe listed on the platform. Demo cafes (isDemo) are owned by the
+// seed script and refreshed on every start; real cafes are never touched by it.
+model Cafe {
+  id             String         @id @default(uuid())
+  slug           String         @unique
+  nameEn         String
+  nameAr         String
+  /// Key from lib/cities.ts, e.g. "damascus", "aleppo".
+  city           String         @default("damascus")
+  areaEn         String
+  areaAr         String
+  addressEn      String
+  addressAr      String
+  /// Map pin (WGS84). Empty = no map on the arena page.
+  latitude       Float?
+  longitude      Float?
+  taglineEn      String
+  taglineAr      String
+  hoursEn        String
+  hoursAr        String
+  hourlyRate     Decimal        @db.Decimal(12, 2)
+  nightShiftRate Decimal        @db.Decimal(12, 2)
+  currency       String         @default("SYP")
+  coverImage     String
+  /// Arena logo (square). Empty = the site shows the arena's initial.
+  logoImage      String?
+  isPublished    Boolean        @default(true)
+  isDemo         Boolean        @default(false)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
+  devices        Device[]
+  sections       CafeSection[]
+  games          CafeGame[]
+  stationGroups  StationGroup[]
+  members        ArenaMember[]
+  images         ArenaImage[]
+
+  @@index([city])
+}
+
+// Photo + text blocks shown on a cafe's page, alternating left/right.
+model CafeSection {
+  id       String @id @default(uuid())
+  cafeId   String
+  position Int
+  titleEn  String
+  titleAr  String
+  bodyEn   String
+  bodyAr   String
+  imageUrl String
+
+  cafe Cafe @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+
+  @@unique([cafeId, position])
+}
+
+/// A zone of stations with the same hardware, shown as a card on the arena
+/// page: "Main hall", "VIP room". Hardware names are written as the owner
+/// types them (usually Latin, e.g. "RTX 4070"). Empty field = not shown.
+model StationGroup {
+  id          String      @id @default(uuid())
+  cafeId      String
+  position    Int         @default(0)
+  type        StationType @default(PC)
+  nameAr      String      @default("")
+  nameEn      String      @default("")
+  noteAr      String      @default("")
+  noteEn      String      @default("")
+  isVip       Boolean     @default(false)
+  cpu         String      @default("")
+  gpu         String      @default("")
+  ram         String      @default("")
+  storage     String      @default("")
+  /// PCs: monitor ("27\" 1440p"); consoles: the TV ("55\" 4K").
+  screen      String      @default("")
+  refreshHz   Int?
+  controllers Int?
+  keyboard    String      @default("")
+  mouse       String      @default("")
+  headset     String      @default("")
+  chair       String      @default("")
+  /// /media/<id> photo (ArenaImage kind "group"). Empty = no photo.
+  imageUrl    String?
+  createdAt   DateTime    @default(now()) @db.Timestamptz(3)
+  cafe        Cafe        @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  devices     Device[]
+
+  @@index([cafeId, position])
+}
+
+/// What kind of station a Device is. PCs are the default.
+enum StationType {
+  PC
+  PS5
+  PS4
+  XBOX
+}
+
+model Device {
+  id            String        @id @default(uuid())
+  cafeId        String
+  /// Station number, unique within the arena (shown per type on the site).
+  pcNumber      Int
+  type          StationType   @default(PC)
+  /// Optional name, e.g. "Private PS5 room".
+  label         String?
+  /// Own prices; empty = the arena's hourly / night rate.
+  hourlyRate    Decimal?      @db.Decimal(12, 2)
+  nightRate     Decimal?      @db.Decimal(12, 2)
+  /// LAN address (PCs, for the future in-arena agent). Consoles may have none.
+  staticIp      String?
+  // Physical fact only (does it answer on the LAN). Availability is derived
+  // from bookings at read time; staleness is derived from lastPingAt.
+  powerStatus   PowerStatus   @default(UNKNOWN)
+  isMaintenance Boolean       @default(false)
+  /// Legacy one-line specs. Shown only when the station has no group.
+  specs         String?
+  /// Zone the station belongs to (specs card, VIP room...). Empty = none.
+  groupId       String?
+  group         StationGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  lastPingAt    DateTime?     @db.Timestamptz(3)
+  /// Removed by the arena. Kept (not deleted) because bookings point to it.
+  archivedAt    DateTime?     @db.Timestamptz(3)
+  bookings      Booking[]
+  cafe          Cafe          @relation(fields: [cafeId], references: [id])
+
+  // PC numbers and LAN addresses are unique within one cafe, not globally.
+  @@unique([cafeId, pcNumber])
+  @@unique([cafeId, staticIp])
+}
+
+model Booking {
+  id             String        @id @default(uuid())
+  userId         String?
+  isWalkIn       Boolean       @default(false)
+  deviceId       String
+  startTime      DateTime      @db.Timestamptz(3)
+  endTime        DateTime      @db.Timestamptz(3)
+  actualStart    DateTime?     @db.Timestamptz(3)
+  actualEnd      DateTime?     @db.Timestamptz(3)
+  totalPrice     Decimal       @db.Decimal(12, 2)
+  status         BookingStatus @default(PENDING)
+  snackNotes     String?
+  confirmedAt    DateTime?     @db.Timestamptz(3)
+  cancelledAt    DateTime?     @db.Timestamptz(3)
+  /// Who cancelled: PLAYER, ARENA or SYSTEM (no answer to "still coming?").
+  cancelledBy    String?
+  /// "Still coming?" sent / answered (online bookings made well ahead).
+  reminderSentAt DateTime?     @db.Timestamptz(3)
+  stillComingAt  DateTime?     @db.Timestamptz(3)
+  /// Language of the bot messages about this booking (the site language when booked).
+  locale         String        @default("ar")
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @db.Timestamptz(3)
+
+  user   User?          @relation(fields: [userId], references: [id])
+  device Device         @relation(fields: [deviceId], references: [id])
+  snacks BookingSnack[]
+
+  @@index([deviceId, startTime])
+  @@index([userId, status])
+  @@index([status, endTime])
+  @@index([status, startTime])
+}
+
+model SnackItem {
+  id        String         @id @default(uuid())
+  name      String
+  price     Decimal        @db.Decimal(12, 2)
+  available Boolean        @default(true)
+  bookings  BookingSnack[]
+}
+
+model BookingSnack {
+  id          String  @id @default(uuid())
+  bookingId   String
+  snackItemId String
+  quantity    Int     @default(1)
+  // Snapshot of the price at order time — menu prices change.
+  unitPrice   Decimal @db.Decimal(12, 2)
+
+  booking   Booking   @relation(fields: [bookingId], references: [id])
+  snackItem SnackItem @relation(fields: [snackItemId], references: [id])
+
+  @@index([bookingId])
+}
+
+// DEPRECATED by per-cafe prices on Cafe. Kept until Phase 1 moves all pricing
+// logic to Cafe; do not read it in new code.
+model PricingSetting {
+  id             String   @id @default("default")
+  hourlyRate     Decimal  @db.Decimal(12, 2)
+  nightShiftRate Decimal  @db.Decimal(12, 2)
+  currency       String   @default("SYP")
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+}
+
+model AuditLog {
+  id         String    @id @default(uuid())
+  actorType  ActorType
+  actorEmail String? // Cloudflare Access email, set when actorType = ADMIN
+  userId     String? // set when actorType = PLAYER
+  action     String
+  details    Json?
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([createdAt])
+}
+
+/// Game catalogue (shared by all arenas). Names are the same in both languages.
+model Game {
+  id        String     @id @default(uuid())
+  slug      String     @unique
+  name      String
+  genreEn   String
+  genreAr   String
+  /// Optional cover image the arena owner has the right to use; a generated tile is shown otherwise.
+  imageUrl  String?
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+  cafes     CafeGame[]
+}
+
+/// Which games an arena offers.
+model CafeGame {
+  cafeId String
+  gameId String
+  cafe   Cafe   @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  game   Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@id([cafeId, gameId])
+  @@index([gameId])
+}
+
+enum ArenaRole {
+  OWNER // everything, including prices and staff
+  STAFF // stations and walk-ins only
+}
+
+/// Who may manage an arena in the owner panel (/manage). Added with
+/// scripts/add-owner.ts by the site owner.
+model ArenaMember {
+  cafeId    String
+  userId    String
+  role      ArenaRole @default(OWNER)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  cafe      Cafe      @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([cafeId, userId])
+  @@index([userId])
+}
+
+/// Logos and banners uploaded by arena owners. Stored in the database so
+/// the daily backup includes them. Served at /media/<id>.
+model ArenaImage {
+  id        String   @id @default(uuid())
+  cafeId    String
+  kind      String // "logo" | "cover" | "group"
+  mime      String
+  data      Bytes
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  cafe      Cafe     @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+
+  @@index([cafeId, kind])
+}

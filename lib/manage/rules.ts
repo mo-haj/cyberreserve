@@ -1,0 +1,117 @@
+// Owner panel input rules (pure, unit-tested). Every change an owner or staff
+// member makes goes through ManageAction; the API refuses anything else.
+import { z } from 'zod';
+import { CITIES } from '@/lib/cities';
+
+export const STATION_TYPES = ['PC', 'PS5', 'PS4', 'XBOX'] as const;
+
+/** "150" or "150.50"; 1 to 10,000,000 SP. */
+const Price = z
+  .string()
+  .trim()
+  .regex(/^\d{1,8}(\.\d{1,2})?$/, 'price')
+  .refine((v) => Number(v) >= 1 && Number(v) <= 10_000_000, 'price');
+/** Empty string = no own price (use the arena's). */
+const OptionalPrice = z.union([Price, z.literal('')]).optional();
+const ShortText = (max: number) => z.string().trim().max(max);
+const Text = (min: number, max: number) => z.string().trim().min(min).max(max);
+const PcNumber = z.number().int().min(1).max(999);
+
+/**
+ * "33.5036, 36.2546" (as copied from Google Maps) -> { lat, lng }, else null.
+ * Also accepts a Google Maps link containing "@lat,lng" or "q=lat,lng".
+ */
+export function parseLatLng(raw: string): { lat: number; lng: number } | null {
+  const text = raw.trim();
+  const m =
+    /@(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/.exec(text) ??
+    /[?&](?:q|query|ll|destination)=(-?\d{1,2}\.\d+)(?:,|%2C)\s*(-?\d{1,3}\.\d+)/i.exec(text) ??
+    /^\(?\s*(-?\d{1,2}\.\d+)\s*[,،\s]\s*(-?\d{1,3}\.\d+)\s*\)?$/.exec(text);
+  if (!m) return null;
+  const lat = Number(m[1]);
+  const lng = Number(m[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 };
+}
+
+const Uuid = z.string().regex(/^[0-9a-f-]{36}$/);
+
+const StationFields = {
+  type: z.enum(STATION_TYPES),
+  label: ShortText(40).optional(),
+  /** Legacy one-line specs; left unchanged when not sent. */
+  specs: ShortText(120).optional(),
+  /** Zone to put the station in; '' = none; not sent = unchanged. */
+  groupId: z.union([Uuid, z.literal('')]).optional(),
+  hourlyRate: OptionalPrice,
+  nightRate: OptionalPrice,
+};
+
+export const ManageAction = z.discriminatedUnion('action', [
+  // Staff and owners: the live floor.
+  z.object({ action: z.literal('walkIn'), pcNumber: PcNumber, minutes: z.number().int().min(15).max(12 * 60) }),
+  z.object({ action: z.literal('freeNow'), pcNumber: PcNumber }),
+  z.object({ action: z.literal('maintenance'), pcNumber: PcNumber, on: z.boolean() }),
+  z.object({
+    action: z.literal('markBooking'),
+    bookingId: z.string().regex(/^[0-9a-f-]{36}$/),
+    mark: z.enum(['arrived', 'noshow', 'cancel']),
+  }),
+  // Owners only: stations.
+  z.object({ action: z.literal('addStations'), count: z.number().int().min(1).max(30), ...StationFields }),
+  z.object({ action: z.literal('editStation'), pcNumber: PcNumber, ...StationFields }),
+  z.object({ action: z.literal('removeStation'), pcNumber: PcNumber }),
+  // Owners only: arena details.
+  z.object({
+    action: z.literal('editArena'),
+    nameAr: Text(2, 60),
+    nameEn: Text(2, 60),
+    taglineAr: ShortText(160),
+    taglineEn: ShortText(160),
+    city: z.enum(CITIES.map((c) => c.key) as [string, ...string[]]),
+    areaAr: Text(2, 60),
+    areaEn: Text(2, 60),
+    addressAr: Text(2, 160),
+    addressEn: Text(2, 160),
+    hoursAr: Text(2, 80),
+    hoursEn: Text(2, 80),
+    hourlyRate: Price,
+    nightShiftRate: Price,
+    /** Map pin as text ("33.50, 36.25" or a Google Maps link); empty = no map. */
+    location: ShortText(500),
+  }),
+  // Owners only: zones (spec cards). `stations` = station numbers in it.
+  z.object({
+    action: z.literal('saveGroup'),
+    id: Uuid.optional(),
+    type: z.enum(STATION_TYPES),
+    nameAr: ShortText(40),
+    nameEn: ShortText(40),
+    noteAr: ShortText(300),
+    noteEn: ShortText(300),
+    isVip: z.boolean(),
+    cpu: ShortText(60),
+    gpu: ShortText(60),
+    ram: ShortText(60),
+    storage: ShortText(60),
+    screen: ShortText(60),
+    refreshHz: z.number().int().min(30).max(1000).nullable(),
+    controllers: z.number().int().min(1).max(16).nullable(),
+    keyboard: ShortText(60),
+    mouse: ShortText(60),
+    headset: ShortText(60),
+    chair: ShortText(60),
+    stations: z.array(PcNumber).max(200),
+  }),
+  z.object({ action: z.literal('removeGroup'), id: Uuid }),
+  z.object({ action: z.literal('moveGroup'), id: Uuid, by: z.union([z.literal(-1), z.literal(1)]) }),
+  z.object({ action: z.literal('setGames'), slugs: z.array(z.string().regex(/^[a-z0-9-]{1,60}$/)).max(300) }),
+]);
+export type ManageAction = z.infer<typeof ManageAction>;
+
+/** What STAFF may do; OWNER may do everything. */
+export const STAFF_ACTIONS = new Set<ManageAction['action']>(['walkIn', 'freeNow', 'maintenance', 'markBooking']);
+
+export function canDo(role: 'OWNER' | 'STAFF', action: ManageAction['action']): boolean {
+  return role === 'OWNER' || STAFF_ACTIONS.has(action);
+}

@@ -1,0 +1,583 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+  background: #05060f;
+  /* Keep the scrollbar's space even when a pop-up locks scrolling, so the
+     page does not jump sideways when "How it works" opens. */
+  scrollbar-gutter: stable;
+}
+
+html,
+body {
+  /* Nothing may ever widen the page sideways. Set on html too: iPhone Safari
+     ignores it on body alone. */
+  overflow-x: clip;
+}
+
+body {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(60rem 30rem at 15% -10rem, rgba(157, 92, 255, 0.28), transparent 70%),
+    radial-gradient(50rem 28rem at 95% 10%, rgba(41, 224, 255, 0.12), transparent 70%),
+    #05060f;
+}
+
+/* ---- Signature: a neon grid floor in perspective, behind everything.
+   Lives in a fixed, clipped container (<div class="cyber-bg"> in layout.tsx)
+   so it can never widen the page, and moves with transform only, which the
+   GPU composites without repainting anything. */
+.cyber-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* The tilted floor itself never moves. Only the inner .cyber-lines layer
+   slides, by transform, inside it: measured 0 repaints per second (the
+   previous version, animating the tilted floor with a mask, repainted
+   ~120 times a second). The fade at the top is a static overlay, not a mask. */
+.cyber-floor {
+  position: absolute;
+  left: -50%;
+  right: -50%;
+  bottom: -20vh;
+  height: 90vh;
+  overflow: hidden;
+  transform-origin: center top;
+  transform: perspective(520px) rotateX(62deg);
+  transform-style: preserve-3d;
+}
+.cyber-lines {
+  position: absolute;
+  inset: -64px 0 0 0;
+  /* Soft, pre-blurred lines: each line is a 6px glow that fades out on both
+     sides instead of a sharp 1px stroke. The blur is drawn into the
+     gradient itself, so it costs nothing per frame (a CSS blur filter on a
+     moving layer would). Slow drift: one cell every 40 s. */
+  background-image:
+    linear-gradient(
+      rgba(157, 92, 255, 0) 0,
+      rgba(157, 92, 255, 0.07) 1.5px,
+      rgba(157, 92, 255, 0.16) 3px,
+      rgba(157, 92, 255, 0.07) 4.5px,
+      rgba(157, 92, 255, 0) 6px,
+      transparent 6px
+    ),
+    linear-gradient(
+      90deg,
+      rgba(41, 224, 255, 0) 0,
+      rgba(41, 224, 255, 0.05) 1.5px,
+      rgba(41, 224, 255, 0.11) 3px,
+      rgba(41, 224, 255, 0.05) 4.5px,
+      rgba(41, 224, 255, 0) 6px,
+      transparent 6px
+    );
+  background-size: 64px 64px;
+  will-change: transform;
+  animation: grid-drift 40s linear infinite;
+}
+.cyber-fade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, #05060f 0%, #05060f 30%, rgba(5, 6, 15, 0) 62%);
+}
+
+/* Faint scanlines over the whole screen. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: repeating-linear-gradient(to bottom, transparent 0 3px, rgba(255, 255, 255, 0.018) 3px 4px);
+  pointer-events: none;
+}
+
+/* Moves exactly one grid cell, so the loop is seamless. */
+@keyframes grid-drift {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(64px);
+  }
+}
+
+[lang='ar'] body,
+body[dir='rtl'] {
+  line-height: 1.75;
+}
+
+:focus-visible {
+  outline: 2px solid #29e0ff;
+  outline-offset: 3px;
+}
+
+@layer components {
+  /* HUD panel: cut corners, hairline frame, glass. */
+  .hud {
+    position: relative;
+    background: linear-gradient(180deg, rgba(21, 27, 61, 0.2), rgba(10, 13, 28, 0.97));
+    box-shadow:
+      inset 0 0 0 1px rgba(157, 92, 255, 0.28),
+      0 30px 80px -40px rgba(0, 0, 0, 0.9);
+    clip-path: polygon(18px 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%, 0 18px);
+  }
+  /* Cyan corner brackets on HUD panels. */
+  .hud::before,
+  .hud::after {
+    content: '';
+    position: absolute;
+    width: 34px;
+    height: 34px;
+    pointer-events: none;
+    border-color: rgba(41, 224, 255, 0.75);
+  }
+  .hud::before {
+    top: 6px;
+    inset-inline-end: 6px;
+    border-top: 2px solid;
+    border-inline-end: 2px solid;
+  }
+  .hud::after {
+    bottom: 6px;
+    inset-inline-start: 6px;
+    border-bottom: 2px solid;
+    border-inline-start: 2px solid;
+  }
+
+  .neon {
+    text-shadow:
+      0 0 18px rgba(157, 92, 255, 0.55),
+      0 0 2px rgba(195, 161, 255, 0.9);
+  }
+
+  .btn-neon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0 1.25rem;
+    font-family: var(--font-display), sans-serif;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(135deg, #9d5cff, #6b2be0);
+    box-shadow: 0 0 24px -4px rgba(157, 92, 255, 0.8);
+    clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+    transition:
+      filter 200ms,
+      box-shadow 200ms;
+  }
+  .btn-neon:hover {
+    filter: brightness(1.15);
+    box-shadow: 0 0 36px -2px rgba(157, 92, 255, 1);
+  }
+  .btn-neon:disabled {
+    filter: grayscale(0.7) brightness(0.7);
+    cursor: not-allowed;
+  }
+
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.5rem;
+    padding: 0 0.9rem;
+    color: #e9eeff;
+    box-shadow: inset 0 0 0 1px rgba(157, 92, 255, 0.4);
+    clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+    transition: background-color 200ms;
+  }
+  .btn-ghost:hover,
+  .btn-ghost[aria-expanded='true'] {
+    background-color: rgba(157, 92, 255, 0.16);
+  }
+}
+
+/* ---- The one orchestrated moment: stations boot up in sequence. */
+@keyframes station-on {
+  0% {
+    opacity: 0;
+    transform: scale(0.88);
+    filter: saturate(0) brightness(2);
+  }
+  60% {
+    opacity: 1;
+    filter: saturate(1.3) brightness(1.4);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+.station-on {
+  animation: station-on 560ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Scroll reveals for the alternating photo/text sections (only when scripts run).
+   Direction rules only set --reveal-x, so the "shown" rule always wins and
+   nothing can stay offset (the mistake that cut text off in Arabic). */
+.js .reveal {
+  opacity: 0;
+  transform: translate3d(var(--reveal-x, 0px), 28px, 0);
+  transition:
+    opacity 900ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 900ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@media (min-width: 1024px) {
+  .reveal[data-from='start'] {
+    --reveal-x: -24px;
+  }
+  .reveal[data-from='end'] {
+    --reveal-x: 24px;
+  }
+  [dir='rtl'] .reveal[data-from='start'] {
+    --reveal-x: 24px;
+  }
+  [dir='rtl'] .reveal[data-from='end'] {
+    --reveal-x: -24px;
+  }
+}
+.js .reveal[data-shown='true'] {
+  opacity: 1;
+  transform: none;
+}
+
+/* "How it works" window: dimmed backdrop, and the page behind cannot scroll. */
+.how-dialog::backdrop,
+.cr-modal::backdrop {
+  background: rgba(5, 6, 15, 0.82);
+}
+html:has(.how-dialog[open]),
+html:has(.cr-modal[open]) {
+  overflow: hidden;
+}
+
+/* Slide-down panel ("How it works", station details). */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.panel-in {
+  animation: panel-in 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+.live-dot {
+  animation: live-pulse 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .cyber-lines,
+  .station-on,
+  .live-dot,
+  .panel-in {
+    animation: none;
+  }
+  .js .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* Scrollbars inside pop-ups: thin neon rail that matches the HUD panels. */
+.cr-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #9d5cff rgba(157, 92, 255, 0.08);
+}
+.cr-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.cr-scroll::-webkit-scrollbar-track {
+  background: rgba(157, 92, 255, 0.08);
+}
+.cr-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(#29e0ff, #9d5cff);
+  box-shadow: 0 0 8px rgba(157, 92, 255, 0.8);
+}
+.cr-scroll::-webkit-scrollbar-button {
+  display: none;
+  height: 0;
+}
+
+/* ---------- City rail (home): chips that slide, one glowing puck ---------- */
+.city-rail-track {
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+.city-rail-track::-webkit-scrollbar {
+  display: none;
+}
+.city-chip {
+  scroll-snap-align: center;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  box-shadow: inset 0 0 0 1px rgba(157, 92, 255, 0.22);
+}
+.city-puck {
+  background: linear-gradient(135deg, rgba(157, 92, 255, 0.55), rgba(41, 224, 255, 0.28));
+  box-shadow: inset 0 0 0 1px rgba(41, 224, 255, 0.75), 0 0 18px -2px rgba(157, 92, 255, 0.9);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  transition:
+    transform 420ms cubic-bezier(0.22, 1.25, 0.36, 1),
+    width 420ms cubic-bezier(0.22, 1.25, 0.36, 1);
+  will-change: transform;
+}
+/* Edges fade out where there is more to scroll; arrows appear there on mouse devices. */
+.city-rail {
+  --fade-l: linear-gradient(to right, transparent, #000 3rem);
+  --fade-r: linear-gradient(to left, transparent, #000 3rem);
+  --fade-both: linear-gradient(to right, transparent, #000 3rem, #000 calc(100% - 3rem), transparent);
+}
+[dir='ltr'] .city-rail[data-start='true'] .city-rail-track,
+[dir='rtl'] .city-rail[data-end='true'] .city-rail-track {
+  -webkit-mask-image: var(--fade-l);
+  mask-image: var(--fade-l);
+}
+[dir='ltr'] .city-rail[data-end='true'] .city-rail-track,
+[dir='rtl'] .city-rail[data-start='true'] .city-rail-track {
+  -webkit-mask-image: var(--fade-r);
+  mask-image: var(--fade-r);
+}
+.city-rail[data-start='true'][data-end='true'] .city-rail-track {
+  -webkit-mask-image: var(--fade-both);
+  mask-image: var(--fade-both);
+}
+.rail-arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 20;
+  display: none;
+  height: 2rem;
+  width: 2rem;
+  place-items: center;
+  color: #29e0ff;
+  background: #0b0f24;
+  box-shadow: inset 0 0 0 1px rgba(41, 224, 255, 0.5), 0 0 12px -2px rgba(41, 224, 255, 0.7);
+  transform: translateY(-50%);
+  transition: opacity 200ms;
+}
+.rail-arrow-start {
+  inset-inline-start: -0.25rem;
+}
+.rail-arrow-end {
+  inset-inline-end: -0.25rem;
+}
+@media (hover: hover) and (pointer: fine) {
+  .city-rail[data-start='true'] .rail-arrow-start,
+  .city-rail[data-end='true'] .rail-arrow-end {
+    display: grid;
+  }
+}
+
+/* ---------- Search field: scan line sweeps in on focus ---------- */
+.scan-field {
+  position: relative;
+  background: rgba(5, 6, 15, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(157, 92, 255, 0.3);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  transition: box-shadow 250ms;
+}
+.scan-field:focus-within {
+  box-shadow: inset 0 0 0 1px rgba(41, 224, 255, 0.55), 0 0 24px -6px rgba(41, 224, 255, 0.6);
+}
+.scan-field::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #29e0ff 30%, #9d5cff 70%, transparent);
+  transform: scaleX(0);
+  transition: transform 450ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.scan-field:focus-within::after {
+  transform: scaleX(1);
+}
+
+/* ---------- Arena list: rows deal in when the city changes ---------- */
+@keyframes deal-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(var(--deal-dir, 1) * 18px));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+[dir='rtl'] .deal-in {
+  --deal-dir: -1;
+}
+.deal-in {
+  animation: deal-in 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .city-puck,
+  .scan-field::after {
+    transition: none;
+  }
+  .deal-in {
+    animation: none;
+  }
+  .city-rail-track {
+    scroll-behavior: auto;
+  }
+}
+
+/* ---------- Radar (empty city / no results) ---------- */
+.radar {
+  background:
+    radial-gradient(circle, transparent 60%, rgba(41, 224, 255, 0.06) 61%, transparent 62%),
+    rgba(11, 15, 36, 0.8);
+  box-shadow: inset 0 0 0 1px rgba(41, 224, 255, 0.35), 0 0 30px -10px rgba(41, 224, 255, 0.6);
+  overflow: hidden;
+}
+.radar-sweep {
+  background: conic-gradient(from 0deg, rgba(41, 224, 255, 0.45), transparent 70deg);
+  animation: radar-spin 2.6s linear infinite;
+}
+@keyframes radar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .radar-sweep {
+    animation: none;
+  }
+}
+
+/* ---------- Games window: tiles leaving a search ---------- */
+.game-tile {
+  transition:
+    opacity 170ms ease-out,
+    transform 170ms ease-out;
+}
+.game-leave {
+  opacity: 0;
+  transform: scale(0.85);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-tile {
+    transition: none;
+  }
+}
+
+/* ---------- Arena map: OpenStreetMap tinted to the night palette ---------- */
+.arena-map {
+  box-shadow: inset 0 0 0 1px rgba(41, 224, 255, 0.35);
+  background: #0b0f24;
+}
+.arena-map iframe {
+  filter: invert(0.9) hue-rotate(185deg) saturate(0.7) brightness(0.95) contrast(0.95);
+}
+.arena-map::after {
+  /* Thin neon frame drawn above the map. */
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(41, 224, 255, 0.45), inset 0 0 30px -10px rgba(157, 92, 255, 0.7);
+}
+
+/* ---------- Profile city picker: chips in a grid ---------- */
+.city-option {
+  background: rgba(5, 6, 15, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(157, 92, 255, 0.25);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+.city-option:hover {
+  background: rgba(157, 92, 255, 0.1);
+}
+.city-option-on,
+.city-option-on:hover {
+  background: linear-gradient(135deg, rgba(157, 92, 255, 0.55), rgba(41, 224, 255, 0.28));
+  box-shadow: inset 0 0 0 1px rgba(41, 224, 255, 0.75), 0 0 18px -4px rgba(157, 92, 255, 0.9);
+}
+.city-grid-error .city-option {
+  box-shadow: inset 0 0 0 1px rgba(255, 45, 85, 0.6);
+}
+
+/* ---------- Status legend: small glowing lights in soft pills ---------- */
+.legend-chip {
+  --c: 139, 147, 184;
+  color: rgba(var(--c), 0.95);
+  background: rgba(var(--c), 0.08);
+  box-shadow: inset 0 0 0 1px rgba(var(--c), 0.22);
+}
+.legend-free {
+  --c: 43, 255, 136;
+}
+.legend-busy {
+  --c: 255, 45, 85;
+}
+.legend-maintenance {
+  --c: 139, 147, 184;
+}
+.legend-dot {
+  background: rgb(var(--c));
+  box-shadow: 0 0 8px rgba(var(--c), 0.9);
+}
+
+/* ---------- Booking pop-up: a sheet from the bottom on phones ---------- */
+.booking-sheet {
+  margin: auto;
+  width: min(36rem, calc(100% - 1.5rem));
+}
+@media (max-width: 639px) {
+  .booking-sheet {
+    margin: auto 0 0;
+    width: 100%;
+    max-width: 100%;
+  }
+  .booking-sheet .sheet-panel {
+    clip-path: polygon(18px 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 0 100%, 0 18px);
+    animation: sheet-up 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .booking-sheet .sheet-panel {
+    animation: none;
+  }
+}
