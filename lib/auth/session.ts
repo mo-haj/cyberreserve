@@ -1,5 +1,6 @@
 // Login requests and browser sessions (server only).
 
+import { isSuperAdminTelegram } from '@/lib/auth/admin';
 import { cookies } from 'next/headers';
 import { LoginStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -18,8 +19,12 @@ export interface CurrentUser {
   /** Full name, player name, city and accepted terms are all set. */
   profileComplete: boolean;
   homeCity: string | null;
-  /** Owner or staff of at least one arena (shows the arena panel link). */
+  /** Owner or staff of at least one arena, or super admin (shows the dashboard link). */
   manages: boolean;
+  /** The site owner (ADMIN_TELEGRAM_IDS): can manage every arena. */
+  superAdmin: boolean;
+  /** Telegram account ID, shown to the user on the dashboard so they can be listed as admin. */
+  telegramId: string | null;
 }
 
 export async function createLoginRequest(locale: 'ar' | 'en' = 'ar') {
@@ -87,6 +92,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
             nickname: true,
             termsAcceptedAt: true,
             homeCity: true,
+            telegramChatId: true,
             _count: { select: { arenas: true } },
           },
         },
@@ -99,7 +105,9 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       name: u.nickname ?? u.name,
       profileComplete: isProfileComplete(u),
       homeCity: u.homeCity,
-      manages: u._count.arenas > 0,
+      manages: u._count.arenas > 0 || isSuperAdminTelegram(u.telegramChatId),
+      superAdmin: isSuperAdminTelegram(u.telegramChatId),
+      telegramId: u.telegramChatId,
     };
   } catch (err) {
     // A database hiccup must not take pages down; the visitor just looks signed out.

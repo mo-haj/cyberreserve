@@ -8,9 +8,8 @@ set -e
 PRISMA="node node_modules/prisma/build/index.js"
 TSX="node node_modules/tsx/dist/cli.mjs"
 
-if [ "$SKIP_ACCESS_CHECK" = "true" ]; then
-  echo "!!! WARNING: SKIP_ACCESS_CHECK=true — /admin and /api/admin are UNPROTECTED."
-  echo "!!! This must never be set in production."
+if [ -z "$ADMIN_TELEGRAM_IDS" ]; then
+  echo "[entrypoint] note: ADMIN_TELEGRAM_IDS is empty, so nobody is site admin yet (sign in, open /admin to see your ID)."
 fi
 
 echo "[entrypoint] applying migrations..."

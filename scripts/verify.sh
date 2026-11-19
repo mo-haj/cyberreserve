@@ -158,11 +158,16 @@ fi
 
 # ---------------------------------------------------------------- admin guard (DoD 7)
 if [ -z "$SKIP_HTTP" ]; then
-  step "DoD 7 — admin paths return 403 without a Cloudflare Access header"
-  for path in /admin /admin/anything /api/admin /api/admin/anything; do
-    code="$(http_code "$BASE_URL$path")"
-    [ "$code" = "403" ] && ok "$path -> 403" || bad "$path -> $code (expected 403)" "is SKIP_ACCESS_CHECK=true in .env?"
+  step "DoD 7 — dashboard closed to signed-out visitors and to players"
+  for path in /admin /admin/mezzeh-arena; do
+    res="$(curl -s -o /dev/null -D - "$BASE_URL$path" | tr -d '\r' | grep -iE '^(HTTP/|location:)' | tr '\n' ' ')"
+    echo "$res" | grep -qi 'location:.*/login' && ok "$path signed out -> sign-in" || bad "$path signed out: got '$res'"
   done
+  code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "origin: $BASE_URL" -H 'content-type: application/json' -d '{}' "$BASE_URL/api/admin/arenas")"
+  [ "$code" = "403" ] && ok "adding an arena without being the site admin -> 403" || bad "POST /api/admin/arenas signed out -> $code (expected 403)"
+  # A fake session cookie gets past the quick check but not the page's own check.
+  res="$(curl -s -o /dev/null -D - -H 'cookie: cr_session=not-a-real-session-token-0000000000000' "$BASE_URL/admin" | tr -d '\r' | grep -iE '^(HTTP/|location:)' | tr '\n' ' ')"
+  echo "$res" | grep -qi 'location:.*/login' && ok "fake session cookie -> sign-in" || bad "/admin with fake cookie: got '$res'"
   code="$(http_code "$BASE_URL/")"
   [ "$code" = "200" ] && ok "/ is public (200)" || bad "/ -> $code (expected 200)"
 fi
@@ -222,7 +227,7 @@ if [ -z "$SKIP_HTTP" ]; then
 
   step "Arena owner panel"
   res="$(curl -s -o /dev/null -D - "$BASE_URL/manage" | tr -d '\r' | grep -iE '^(HTTP/|location:)' | tr '\n' ' ')"
-  echo "$res" | grep -qi 'location:.*/login' && ok "owner panel asks signed-out visitors to sign in" || bad "/manage signed out: got '$res'"
+  echo "$res" | grep -qi 'location:.*/login' && ok "old /manage link asks signed-out visitors to sign in" || bad "/manage signed out: got '$res'"
   code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/manage/mezzeh-arena")"
   [ "$code" = "403" ] && ok "owner API refuses visitors who are not members (403)" || bad "owner API without sign-in -> $code"
   code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'origin: https://evil.example' -H 'content-type: application/json' -d '{"action":"freeNow","pcNumber":1}' "$BASE_URL/api/manage/mezzeh-arena")"

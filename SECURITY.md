@@ -3,48 +3,38 @@
 ## Production checklist
 
 - [ ] Fresh secrets generated with `scripts/setup-env` (do not reuse the `.env` that came in the zip).
-- [ ] `SKIP_ACCESS_CHECK=false`.
+- [ ] `ADMIN_TELEGRAM_IDS` lists only the site owner's Telegram account ID(s).
 - [ ] `WEB_BIND=127.0.0.1` (default). Port 3000 is not reachable from the network.
 - [ ] Traffic reaches the server only through a `cloudflared` tunnel (`--profile tunnel`).
-- [ ] Cloudflare Access application covers `/admin*` and `/api/admin*` — and nothing else.
 - [ ] `.env` is not in git (`git status` must not list it).
 - [ ] `./backups` is copied off the machine regularly.
 - [ ] `sh scripts/verify.sh` ends with `0 failed`.
 
-## How admin protection works
+## How the dashboard is protected
 
-Two layers, both required:
+The dashboard (`/admin`) has no separate password: people sign in with Telegram, like players.
+What they may do is decided on the server for every page and every request:
 
-1. **Cloudflare Access** (edge): email one-time code for `/admin*` and `/api/admin*`.
-2. **`middleware.ts`** (app): rejects those paths with `403` unless the `Cf-Access-Jwt-Assertion`
-   header is present.
+| Who | How the site knows | What they can do |
+|---|---|---|
+| Site owner (super admin) | Telegram account ID is in `ADMIN_TELEGRAM_IDS` | Everything, in every arena; add arenas; publish/hide; choose owners and staff |
+| Arena owner | `ArenaMember` row with role OWNER | Their own arena only: stations, zones, posts, details, games, bookings, players |
+| Arena staff | `ArenaMember` row with role STAFF | Their own arena's live floor and bookings only |
+| Everyone else | — | Nothing: `/admin/<arena>` answers 404 (same as an arena that does not exist) |
 
-### Known limitation in Phase 0 — read this
-
-The middleware checks that the header **exists**. It does not verify the token's signature yet
-(the Phase 0 spec defers that). Anyone who can reach the server *directly* can send a fake header
-and pass layer 2. So in Phase 0 the real protection is: **the origin is unreachable except through
-Cloudflare.** That is why `WEB_BIND=127.0.0.1` and the tunnel matter.
-
-There is nothing behind `/admin` yet, so nothing is exposed today. **Signature verification
-against the team's JWKS (`https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, checking
-`aud` and `iss`) must be added before the Phase 2 admin panel ships.**
+- `middleware.ts` only sends visitors with no session cookie to sign-in; the real checks are in the
+  pages and API routes (`lib/manage/service.ts`, `lib/manage/rules.ts`), so a fake cookie gets nothing.
+- Publishing, hiding and owner changes are refused for owners and staff (`SUPER_ACTIONS`), even
+  if they call the API directly.
+- Every change is written to the audit log with who did it (`OWNER` or `ADMIN`).
+- With `ADMIN_TELEGRAM_IDS` empty, nobody is super admin.
+- Once the site has its own domain, `admin.<domain>` opens the dashboard; the rules are the same.
 
 ## Cloudflare setup
 
 1. **Tunnel**: Zero Trust → Networks → Tunnels → Create (Cloudflared). Copy the token into
    `CLOUDFLARE_TUNNEL_TOKEN`. Add a public hostname pointing to service `http://web:3000`.
-2. **Access**: Zero Trust → Access → Applications → Add self-hosted. Add two paths on your
-   hostname: `admin` and `api/admin`. Policy: Allow → Emails → the owner's email.
-3. Do **not** put Access on the whole hostname. It must match this table exactly:
-
-| Path | Access |
-|---|---|
-| `/` and player routes, `/api/devices`, `/api/bookings` | Public |
-| `/admin*`, `/api/admin/*` | Cloudflare Access |
-| `/api/agent/ping-sync` | Not behind Access — guarded by `X-Agent-Key` (Phase 3) |
-| `/api/telegram/webhook/...` | Not behind Access — secret path + header (Phase 4) |
-| `/api/health` | Public |
+2. Cloudflare Access is optional: the dashboard checks Telegram sign-in and rights itself.
 
 If you cannot use a tunnel, firewall the server so ports 80/443 accept only
 [Cloudflare IP ranges](https://www.cloudflare.com/ips/), and keep port 3000 closed.
@@ -61,8 +51,8 @@ If you cannot use a tunnel, firewall the server so ports 80/443 accept only
 - `/api/health` never returns error details.
 - Response headers: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy`, `Permissions-Policy`; `X-Powered-By` removed.
-- Admin guard verified on `/admin`, `/admin/...`, `/api/admin`, `/api/admin/...`, including an
-  empty header value and an encoded slash.
+- Dashboard verified: signed out and fake-cookie visitors are sent to sign-in; a player cannot
+  add arenas (403) or open another arena (404); an owner cannot publish or change owners (403).
 
 ## Player sign-in (Telegram)
 

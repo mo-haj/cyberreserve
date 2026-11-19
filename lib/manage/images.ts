@@ -3,12 +3,13 @@
 // the browser's claimed type are not trusted). No SVG: it can carry scripts.
 
 /** 'group' = a zone's photo (stored with kind "group:<id>"). */
-export type ImageKind = 'logo' | 'cover' | 'group';
+export type ImageKind = 'logo' | 'cover' | 'group' | 'post';
 
 export const IMAGE_LIMITS: Record<ImageKind, number> = {
   logo: 512 * 1024, // 512 KB
   cover: 2 * 1024 * 1024, // 2 MB
   group: 2 * 1024 * 1024, // 2 MB
+  post: 2 * 1024 * 1024, // 2 MB
 };
 
 export const DEFAULT_COVER = '/cafes/cover-default.svg';

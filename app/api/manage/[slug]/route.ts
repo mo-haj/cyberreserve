@@ -6,8 +6,9 @@ import { getManageData, getMembership, runAction } from '@/lib/manage/service';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { now } from '@/lib/time';
 
-// Owner panel API. Signed-in arena members only; each member can reach only
-// their own arena, and staff only the live-floor actions (see lib/manage).
+// Arena dashboard API. Signed-in arena members reach only their own arena
+// (staff only the live-floor actions); the super admin reaches every arena
+// and alone may publish/hide it and choose its owners (see lib/manage).
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -17,7 +18,7 @@ async function member(slug: string) {
   if (!SLUG.test(slug)) return null;
   const user = await getCurrentUser();
   if (!user) return null;
-  const m = await getMembership(user.id, slug);
+  const m = await getMembership(user, slug);
   return m ? { user, m } : null;
 }
 

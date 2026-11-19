@@ -166,9 +166,22 @@ export default async function ArenaPage({ params }: Params) {
           <div className="min-w-0 lg:col-start-1 lg:row-start-2">
             <div className="space-y-16 pt-10 sm:space-y-24">
               {arena.sections.map((s, i) => {
+                const title = pick(locale, s.titleEn, s.titleAr);
+                const body = pick(locale, s.bodyEn, s.bodyAr);
+                // A post without a photo: the text alone, in a framed block.
+                if (!s.imageUrl) {
+                  return (
+                    <Reveal key={i} from="end">
+                      <section className="hud max-w-3xl p-6 sm:p-8">
+                        {title && <h2 className="font-display text-3xl font-bold leading-tight text-ink">{title}</h2>}
+                        {body && <p className="mt-4 whitespace-pre-line text-lg leading-relaxed text-muted">{body}</p>}
+                      </section>
+                    </Reveal>
+                  );
+                }
                 const imageFirst = i % 2 === 0;
                 return (
-                  <section key={s.titleEn} className="grid items-center gap-8 md:grid-cols-2 md:gap-12">
+                  <section key={i} className="grid items-center gap-8 md:grid-cols-2 md:gap-12">
                     <Reveal from={imageFirst ? 'start' : 'end'} className={imageFirst ? '' : 'md:order-2'}>
                       <div className="hud overflow-hidden">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -176,8 +189,8 @@ export default async function ArenaPage({ params }: Params) {
                       </div>
                     </Reveal>
                     <Reveal from={imageFirst ? 'end' : 'start'} className={imageFirst ? '' : 'md:order-1'}>
-                      <h2 className="font-display text-3xl font-bold leading-tight text-ink">{pick(locale, s.titleEn, s.titleAr)}</h2>
-                      <p className="mt-4 max-w-prose text-lg leading-relaxed text-muted">{pick(locale, s.bodyEn, s.bodyAr)}</p>
+                      {title && <h2 className="font-display text-3xl font-bold leading-tight text-ink">{title}</h2>}
+                      {body && <p className="mt-4 max-w-prose whitespace-pre-line text-lg leading-relaxed text-muted">{body}</p>}
                     </Reveal>
                   </section>
                 );

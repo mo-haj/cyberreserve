@@ -105,6 +105,21 @@ export const ManageAction = z.discriminatedUnion('action', [
   }),
   z.object({ action: z.literal('removeGroup'), id: Uuid }),
   z.object({ action: z.literal('moveGroup'), id: Uuid, by: z.union([z.literal(-1), z.literal(1)]) }),
+  // Owners: photo + text posts on the arena page (photo uploaded separately).
+  z.object({
+    action: z.literal('savePost'),
+    id: Uuid.optional(),
+    titleAr: ShortText(80),
+    titleEn: ShortText(80),
+    bodyAr: ShortText(1000),
+    bodyEn: ShortText(1000),
+  }),
+  z.object({ action: z.literal('removePost'), id: Uuid }),
+  z.object({ action: z.literal('movePost'), id: Uuid, by: z.union([z.literal(-1), z.literal(1)]) }),
+  // Super admin only (the site owner).
+  z.object({ action: z.literal('setPublished'), on: z.boolean() }),
+  z.object({ action: z.literal('setMember'), phone: Text(6, 30), role: z.enum(['OWNER', 'STAFF']) }),
+  z.object({ action: z.literal('removeMember'), userId: Uuid }),
   z.object({ action: z.literal('setGames'), slugs: z.array(z.string().regex(/^[a-z0-9-]{1,60}$/)).max(300) }),
 ]);
 export type ManageAction = z.infer<typeof ManageAction>;
@@ -112,6 +127,37 @@ export type ManageAction = z.infer<typeof ManageAction>;
 /** What STAFF may do; OWNER may do everything. */
 export const STAFF_ACTIONS = new Set<ManageAction['action']>(['walkIn', 'freeNow', 'maintenance', 'markBooking']);
 
-export function canDo(role: 'OWNER' | 'STAFF', action: ManageAction['action']): boolean {
+/** Only the site owner (super admin) may do these, in any arena. */
+export const SUPER_ACTIONS = new Set<ManageAction['action']>(['setPublished', 'setMember', 'removeMember']);
+
+export function canDo(role: 'OWNER' | 'STAFF', action: ManageAction['action'], superAdmin = false): boolean {
+  if (superAdmin) return true;
+  if (SUPER_ACTIONS.has(action)) return false;
   return role === 'OWNER' || STAFF_ACTIONS.has(action);
 }
+
+/** "Mezzeh Arena!" -> "mezzeh-arena" (web address of an arena page). */
+export function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
+/** Super admin: a new arena. It starts hidden until published. */
+export const NewArena = z.object({
+  nameAr: Text(2, 80),
+  nameEn: Text(2, 80),
+  slug: z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/)
+    .max(60),
+  city: z.enum(CITIES.map((c) => c.key) as [string, ...string[]]),
+  areaAr: ShortText(80),
+  areaEn: ShortText(80),
+  hourlyRate: Price,
+});
+export type NewArena = z.infer<typeof NewArena>;

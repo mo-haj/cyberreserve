@@ -36,12 +36,16 @@ What works today:
   shown before confirming and in the bot's confirmation. 3 no-shows pause booking for
   7 days. Players see and cancel their bookings on their profile ("حجوزاتي"). The reminder job runs
   inside the website every minute (turn it off with `BOOKING_JOBS=off`).
-- **Arena owner panel** (`/manage`): arena owners sign in with Telegram like players and manage
-  only their own arena: start a walk-in on a station (1/2/3 h) or free it, set stations out of
+- **Dashboard** (`/admin`, later `admin.<your domain>`): one place for the site owner and arena owners.
+  - **Site owner (super admin)**: put your Telegram account ID in `ADMIN_TELEGRAM_IDS` (the dashboard
+    shows it once you sign in). You see every arena, **add arenas** (they start hidden), **publish or
+    hide** them, and add/remove **owners and staff** by phone number (tab "الإدارة").
+  - **Arena owners** manage only their own arena: start a walk-in on a station (1/2/3 h) or free it, set stations out of
   service, add/edit/remove stations (PC, PS5, PS4, Xbox, own prices), edit the arena's details,
   prices, city and map pin, and pick its games. **Staff** can only start/free stations.
-  To give someone access: they sign in once, then double-click **`add-owner.bat`** and enter the
-  arena and their phone number (or REMOVE to take access away). Every change is in the audit log.
+  New tabs: **Players** (who booked, phone, city, bookings, no-shows) and **Posts** (photo + text
+  blocks on the arena page). Owners are added in the dashboard (`add-owner.bat` still works too).
+  The old `/manage` links redirect to `/admin`. Every change is in the audit log.
   The panel also lists upcoming bookings with the player's name, phone and city, and the same
   Arrived / No-show / Cancel buttons.
 - **Zones** (owner panel → "الأقسام"): group stations of one type into zones (Main hall, VIP room…)
@@ -179,7 +183,7 @@ message, so the chat never goes silent.
 
 Read `SECURITY.md` first — it is short. The essentials:
 
-1. Generate fresh secrets (step 2 above) and keep `SKIP_ACCESS_CHECK=false`.
+1. Generate fresh secrets (step 2 above) and set `ADMIN_TELEGRAM_IDS` to your Telegram ID.
 2. Put the tunnel token in `.env` (`CLOUDFLARE_TUNNEL_TOKEN=`) and start with the tunnel:
    ```
    docker compose --profile tunnel up -d --build
@@ -244,7 +248,7 @@ CLAUDE.md, docs/         engineering standard and the original phase prompts
 | `web` keeps restarting | `docker compose logs web`. Usually the password in `DATABASE_URL` does not match `POSTGRES_PASSWORD`. |
 | `P1000 authentication failed` after changing `.env` | The database was created with the old password. `docker compose down -v` and start again (deletes data). |
 | Port 3000 busy | Stop the other program, or change the left `3000` in `docker-compose.yml`. |
-| `/admin` gives 403 locally | Correct — it is protected. For local work only, set `SKIP_ACCESS_CHECK=true` and restart. |
+| `/admin` says you manage no arena | Add your Telegram ID (shown there) to `ADMIN_TELEGRAM_IDS`, or have the site owner add you to an arena. |
 
 ## Full site on Vercel + Neon (free, no PC needed)
 
@@ -260,14 +264,15 @@ Vercel runs the site, **Neon** is the database, **cron-job.org** triggers the mi
    - `DIRECT_URL` = direct address
    - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET` = same as in `.env`
    - `CRON_SECRET` = a long random text (letters and digits, 32+)
+   - `ADMIN_TELEGRAM_IDS` = your Telegram account ID (the dashboard shows it after you sign in)
    - delete `PREVIEW_MODE`
 3. **Deployments → ⋯ → Redeploy**. The build (`scripts/vercel-build.mjs`) creates the tables,
    adds the demo arenas, and points the Telegram bot at the site.
    From then on the bot answers through Vercel; the helper on the PC shows "409" and can be stopped.
 4. **cron-job.org** (free): create a job, URL
    `https://<your-site>/api/cron/tick?key=<CRON_SECRET>`, every **1 minute**.
-5. Make yourself an arena owner on the online database: sign in on the site once, then on the PC run
-   `scripts/add-owner.ts` with `DATABASE_URL` set to the **direct** Neon address.
+5. Sign in on the site, open **/admin**, copy the Telegram ID it shows into `ADMIN_TELEGRAM_IDS`,
+   redeploy: you are the site admin and can add arenas and owners from the dashboard.
 
 To go back to the bot on the PC: in a browser open
 `https://api.telegram.org/bot<TOKEN>/deleteWebhook` (with your token), then restart the helper.

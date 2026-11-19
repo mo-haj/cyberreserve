@@ -1,5 +1,5 @@
 // Makes a player the owner (or staff) of an arena, so they see the owner
-// panel at /manage. The player must have signed in once with Telegram.
+// dashboard at /admin. The player must have signed in once with Telegram.
 //
 //   docker compose exec web node node_modules/tsx/dist/cli.mjs scripts/add-owner.ts <arena-slug> <phone> [OWNER|STAFF]
 //   docker compose exec web node node_modules/tsx/dist/cli.mjs scripts/add-owner.ts <arena-slug> <phone> REMOVE
@@ -56,7 +56,7 @@ async function main() {
   await prisma.auditLog.create({
     data: { actorType: 'SYSTEM', action: 'arena.member.set', details: { arena: slug, userId: user.id, role } },
   });
-  console.log(`${user.nickname ?? user.name} is now ${role} of ${cafe.nameEn}. They can open /manage after signing in.`);
+  console.log(`${user.nickname ?? user.name} is now ${role} of ${cafe.nameEn}. They can open /admin after signing in.`);
 }
 
 main()

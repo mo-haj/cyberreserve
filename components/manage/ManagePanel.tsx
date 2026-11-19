@@ -9,13 +9,15 @@ import type { ManageData, ManageGroup, ManageStation } from '@/lib/manage/servic
 import { fieldsFor, groupName, groupSummary, numberRanges, type SpecField } from '@/lib/groups';
 import { googleMapsUrl } from '@/lib/maps';
 import { parseLatLng } from '@/lib/manage/rules';
+import { Field, IconButton, TextArea } from '@/components/manage/fields';
+import { Access, Players, Posts } from '@/components/manage/tabs';
 import { formatDamascusTime, toDamascusParts } from '@/lib/time';
 
 // Owner panel: live floor with walk-in controls, station editing, arena
 // details and games. Every change goes through POST /api/manage/<slug>,
 // which answers with the fresh data.
 
-type Tab = 'stations' | 'zones' | 'bookings' | 'arena' | 'games';
+type Tab = 'stations' | 'zones' | 'bookings' | 'players' | 'posts' | 'arena' | 'games' | 'owners';
 const TYPES = ['PC', 'PS5', 'PS4', 'XBOX'] as const;
 const POLL_MS = 10_000;
 
@@ -55,11 +57,14 @@ export default function ManagePanel({
   locale,
   slug,
   role,
+  superAdmin = false,
   initial,
 }: {
   locale: Locale;
   slug: string;
   role: 'OWNER' | 'STAFF';
+  /** The site owner: also sees the Access tab (publish/hide, owners). */
+  superAdmin?: boolean;
   initial: ManageData;
 }) {
   const m = manageText(locale);
@@ -84,10 +89,13 @@ export default function ManagePanel({
     { key: 'bookings', label: `${m.tabs.bookings}${data.bookings.length ? ` (${data.bookings.length})` : ''}` },
     ...(owner
       ? ([
+          { key: 'players', label: m.tabs.players },
+          { key: 'posts', label: m.tabs.posts },
           { key: 'arena', label: m.tabs.arena },
           { key: 'games', label: m.tabs.games },
         ] as const)
       : []),
+    ...(superAdmin ? ([{ key: 'owners', label: m.tabs.owners }] as const) : []),
   ];
 
   return (
@@ -125,11 +133,14 @@ export default function ManagePanel({
         </>
       )}
       {tab === 'games' && owner && <GamesForm m={m} data={data} action={action} />}
+      {tab === 'players' && owner && <Players locale={locale} m={m} data={data} />}
+      {tab === 'posts' && owner && <Posts locale={locale} slug={slug} m={m} data={data} setData={setData} action={action} />}
+      {tab === 'owners' && superAdmin && <Access m={m} data={data} action={action} />}
     </div>
   );
 }
 
-type Action = ReturnType<typeof useAction>;
+export type Action = ReturnType<typeof useAction>;
 
 // ------------------------------------------------------------------ stations
 
@@ -310,21 +321,6 @@ function StationCard({
   );
 }
 
-function IconButton({ label, onClick, danger = false, children }: { label: string; onClick: () => void; danger?: boolean; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={`grid h-8 w-8 place-items-center transition-colors ${danger ? 'bg-busy/20 text-busy' : 'text-muted hover:bg-panel2 hover:text-ink'}`}
-    >
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        {children}
-      </svg>
-    </button>
-  );
-}
 
 function StationEditor({
   m,
@@ -432,22 +428,6 @@ function StationEditor({
   );
 }
 
-function Field({
-  label,
-  hint,
-  ...props
-}: { label: string; hint?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <label className="block">
-      <span className="text-sm font-semibold text-ink">{label}</span>
-      <input
-        {...props}
-        className="mt-1.5 w-full bg-void/70 px-3 py-2.5 text-ink placeholder:text-muted/60 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] outline-none focus:shadow-[inset_0_0_0_1px_rgba(41,224,255,0.8)]"
-      />
-      {hint && <span className="mt-1 block text-xs text-muted">{hint}</span>}
-    </label>
-  );
-}
 
 // ------------------------------------------------------------------ arena
 
@@ -1214,15 +1194,3 @@ function ZoneEditor({
   );
 }
 
-function TextArea({ label, ...props }: { label: string } & React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <label className="block">
-      <span className="text-sm font-semibold text-ink">{label}</span>
-      <textarea
-        {...props}
-        rows={2}
-        className="mt-1.5 w-full resize-none bg-void/70 px-3 py-2.5 text-ink placeholder:text-muted/60 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] outline-none focus:shadow-[inset_0_0_0_1px_rgba(41,224,255,0.8)]"
-      />
-    </label>
-  );
-}

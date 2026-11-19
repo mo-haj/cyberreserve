@@ -60,7 +60,7 @@ export function SiteHeader({
           {user ? (
             <>
               {user.manages && (
-                <Link href="/manage" className="btn-ghost whitespace-nowrap text-sm text-cyan">
+                <Link href="/admin" className="btn-ghost whitespace-nowrap text-sm text-cyan">
                   {manageText(locale).nav}
                 </Link>
               )}
@@ -94,7 +94,7 @@ export function SiteHeader({
           <MobileMenu label={t.nav.menu} closeLabel={t.nav.closeMenu}>
             <nav aria-label={t.nav.menu} className="flex flex-col gap-2">
               {user?.manages && (
-                <Link href="/manage" className="btn-ghost justify-start text-sm text-cyan">
+                <Link href="/admin" className="btn-ghost justify-start text-sm text-cyan">
                   {manageText(locale).nav}
                 </Link>
               )}

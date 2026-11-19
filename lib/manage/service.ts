@@ -4,7 +4,8 @@
 import { ArenaRole, BookingStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { now } from '@/lib/time';
-import { canDo, parseLatLng, type ManageAction } from '@/lib/manage/rules';
+import { canDo, parseLatLng, type ManageAction, type NewArena } from '@/lib/manage/rules';
+import { normalizePhone } from '@/lib/telegram/logic';
 import { arenaBookings, markByArena } from '@/lib/booking/service';
 import { GROUP_SELECT } from '@/lib/cafes';
 import type { GroupView } from '@/lib/groups';
@@ -13,23 +14,89 @@ export interface Membership {
   cafeId: string;
   slug: string;
   role: ArenaRole;
+  /** The site owner: may do everything, in every arena. */
+  superAdmin: boolean;
 }
 
-export async function getMembership(userId: string, slug: string): Promise<Membership | null> {
+type Who = { id: string; superAdmin: boolean };
+
+/** What this user may do in this arena, or null (not theirs / no such arena). */
+export async function getMembership(user: Who, slug: string): Promise<Membership | null> {
+  if (user.superAdmin) {
+    const cafe = await prisma.cafe.findUnique({ where: { slug }, select: { id: true, slug: true } });
+    return cafe ? { cafeId: cafe.id, slug: cafe.slug, role: 'OWNER', superAdmin: true } : null;
+  }
   const m = await prisma.arenaMember.findFirst({
-    where: { userId, cafe: { slug } },
+    where: { userId: user.id, cafe: { slug } },
     select: { role: true, cafe: { select: { id: true, slug: true } } },
   });
-  return m ? { cafeId: m.cafe.id, slug: m.cafe.slug, role: m.role } : null;
+  return m ? { cafeId: m.cafe.id, slug: m.cafe.slug, role: m.role, superAdmin: false } : null;
 }
 
-export async function listMyArenas(userId: string) {
-  const rows = await prisma.arenaMember.findMany({
-    where: { userId },
-    select: { role: true, cafe: { select: { slug: true, nameAr: true, nameEn: true, coverImage: true } } },
-    orderBy: { createdAt: 'asc' },
+/** Arenas on the dashboard: their own for owners and staff, all of them for the super admin. */
+export async function listMyArenas(user: Who) {
+  const at = now();
+  const select = {
+    slug: true,
+    nameAr: true,
+    nameEn: true,
+    coverImage: true,
+    logoImage: true,
+    city: true,
+    isPublished: true,
+    _count: { select: { devices: { where: { archivedAt: null } } } },
+  } as const;
+  const rows = user.superAdmin
+    ? (await prisma.cafe.findMany({ select, orderBy: [{ isPublished: 'desc' }, { createdAt: 'asc' }] })).map((c) => ({
+        role: 'OWNER' as ArenaRole,
+        cafe: c,
+      }))
+    : await prisma.arenaMember.findMany({ where: { userId: user.id }, select: { role: true, cafe: { select } }, orderBy: { createdAt: 'asc' } });
+  // Bookings made online for today and later, per arena (one query).
+  const upcoming = await prisma.booking.groupBy({
+    by: ['deviceId'],
+    where: { isWalkIn: false, status: { in: HOLDING }, endTime: { gt: at }, device: { cafe: { slug: { in: rows.map((r) => r.cafe.slug) } } } },
+    _count: true,
   });
-  return rows.map((r) => ({ role: r.role, ...r.cafe }));
+  const devices = await prisma.device.findMany({
+    where: { id: { in: upcoming.map((u) => u.deviceId) } },
+    select: { id: true, cafe: { select: { slug: true } } },
+  });
+  const bySlug = new Map<string, number>();
+  for (const u of upcoming) {
+    const slug = devices.find((d) => d.id === u.deviceId)?.cafe.slug;
+    if (slug) bySlug.set(slug, (bySlug.get(slug) ?? 0) + u._count);
+  }
+  return rows.map(({ role, cafe: { _count, ...c } }) => ({ role, ...c, stations: _count.devices, upcoming: bySlug.get(c.slug) ?? 0 }));
+}
+
+/** Super admin: a new, hidden arena (owners and stations are added on its page). */
+export async function createArena(input: NewArena, userId: string): Promise<{ ok: true; slug: string } | { ok: false; error: 'slug_taken' }> {
+  const taken = await prisma.cafe.findUnique({ where: { slug: input.slug }, select: { id: true } });
+  if (taken) return { ok: false, error: 'slug_taken' };
+  const rate = new Prisma.Decimal(input.hourlyRate);
+  await prisma.cafe.create({
+    data: {
+      slug: input.slug,
+      nameAr: input.nameAr,
+      nameEn: input.nameEn,
+      city: input.city,
+      areaAr: input.areaAr,
+      areaEn: input.areaEn,
+      addressAr: '',
+      addressEn: '',
+      taglineAr: '',
+      taglineEn: '',
+      hoursAr: '',
+      hoursEn: '',
+      hourlyRate: rate,
+      nightShiftRate: rate,
+      coverImage: '/cafes/cover-default.svg',
+      isPublished: false,
+    },
+  });
+  await prisma.auditLog.create({ data: { actorType: 'ADMIN', userId, action: 'admin.arena.create', details: { arena: input.slug } } });
+  return { ok: true, slug: input.slug };
 }
 
 const HOLDING: BookingStatus[] = [BookingStatus.PENDING, BookingStatus.CONFIRMED];
@@ -45,6 +112,47 @@ export interface ManageStation {
   isMaintenance: boolean;
   /** Current booking or walk-in, if any. */
   busy: { until: string; walkIn: boolean } | null;
+}
+
+export interface ManagePlayer {
+  id: string;
+  fullName: string;
+  nickname: string;
+  phone: string;
+  city: string;
+  bookings: number;
+  noShows: number;
+  last: string;
+}
+
+/** Players who booked online at this arena, most recent first (up to 300). */
+async function arenaPlayers(cafeId: string): Promise<ManagePlayer[]> {
+  const rows = await prisma.booking.groupBy({
+    by: ['userId', 'status'],
+    where: { isWalkIn: false, userId: { not: null }, device: { cafeId } },
+    _count: true,
+    _max: { startTime: true },
+  });
+  const per = new Map<string, { bookings: number; noShows: number; last: Date }>();
+  for (const r of rows) {
+    const p = per.get(r.userId!) ?? { bookings: 0, noShows: 0, last: new Date(0) };
+    p.bookings += r._count;
+    if (r.status === BookingStatus.NO_SHOW) p.noShows += r._count;
+    if (r._max.startTime && r._max.startTime > p.last) p.last = r._max.startTime;
+    per.set(r.userId!, p);
+  }
+  const ids = [...per.entries()].sort((a, b) => +b[1].last - +a[1].last).slice(0, 300).map(([id]) => id);
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true, fullName: true, nickname: true, phone: true, homeCity: true },
+  });
+  return ids.flatMap((id) => {
+    const u = users.find((x) => x.id === id);
+    const p = per.get(id)!;
+    return u
+      ? [{ id, fullName: u.fullName ?? u.name, nickname: u.nickname ?? '', phone: u.phone ?? '', city: u.homeCity ?? '', bookings: p.bookings, noShows: p.noShows, last: p.last.toISOString() }]
+      : [];
+  });
 }
 
 export async function getManageData(cafeId: string) {
@@ -65,6 +173,11 @@ export async function getManageData(cafeId: string) {
       },
       games: { select: { game: { select: { slug: true } } } },
       stationGroups: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: GROUP_SELECT },
+      sections: { orderBy: { position: 'asc' }, select: { id: true, titleAr: true, titleEn: true, bodyAr: true, bodyEn: true, imageUrl: true } },
+      members: {
+        orderBy: { createdAt: 'asc' },
+        select: { role: true, user: { select: { id: true, name: true, nickname: true, fullName: true, phone: true } } },
+      },
     },
   });
   const catalogue = await prisma.game.findMany({
@@ -108,6 +221,15 @@ export async function getManageData(cafeId: string) {
       (g): ManageGroup => ({ ...g, stations: stations.filter((s) => s.groupId === g.id).map((s) => s.pcNumber) }),
     ),
     games: { selected: cafe.games.map((g) => g.game.slug), catalogue },
+    isPublished: cafe.isPublished,
+    posts: cafe.sections,
+    players: await arenaPlayers(cafeId),
+    members: cafe.members.map((m) => ({
+      userId: m.user.id,
+      role: m.role,
+      name: m.user.nickname ?? m.user.fullName ?? m.user.name,
+      phone: m.user.phone ?? '',
+    })),
   };
 }
 export interface ManageGroup extends GroupView {
@@ -127,7 +249,10 @@ export type ActionError =
   | 'bad_location'
   | 'too_many'
   | 'too_late'
-  | 'bad_group';
+  | 'bad_group'
+  | 'empty_post'
+  | 'bad_phone'
+  | 'no_such_player';
 
 const fail = (error: ActionError, status = 400): ActionResult => ({ ok: false, error, status });
 const priceOrNull = (v: string | undefined) => (v ? new Prisma.Decimal(v) : null);
@@ -150,13 +275,13 @@ export async function runAction(
   userId: string,
   input: ManageAction,
 ): Promise<ActionResult> {
-  if (!canDo(member.role, input.action)) return fail('forbidden', 403);
+  if (!canDo(member.role, input.action, member.superAdmin)) return fail('forbidden', 403);
   const at = now();
   const { cafeId } = member;
 
   const audit = (details: Prisma.InputJsonValue) =>
     prisma.auditLog.create({
-      data: { actorType: 'OWNER', userId, action: `manage.${input.action}`, details: { arena: member.slug, ...(details as object) } },
+      data: { actorType: member.superAdmin ? 'ADMIN' : 'OWNER', userId, action: `manage.${input.action}`, details: { arena: member.slug, ...(details as object) } },
     });
 
   switch (input.action) {
@@ -353,6 +478,68 @@ export async function runAction(
       if (j < 0 || j >= list.length) return { ok: true };
       [list[i], list[j]] = [list[j], list[i]];
       await prisma.$transaction(list.map((g, k) => prisma.stationGroup.update({ where: { id: g.id }, data: { position: k + 1 } })));
+      return { ok: true };
+    }
+    case 'savePost': {
+      const { action: _a, id, ...text } = input;
+      void _a;
+      if (!text.titleAr && !text.titleEn && !text.bodyAr && !text.bodyEn) return fail('empty_post');
+      if (id) {
+        const done = await prisma.cafeSection.updateMany({ where: { id, cafeId }, data: text });
+        if (done.count === 0) return fail('not_found', 404);
+      } else {
+        const last = await prisma.cafeSection.aggregate({ where: { cafeId }, _max: { position: true } });
+        await prisma.cafeSection.create({ data: { cafeId, position: (last._max.position ?? 0) + 1, imageUrl: '', ...text } });
+      }
+      await audit({ post: id ?? 'new' });
+      return { ok: true };
+    }
+    case 'removePost': {
+      const post = await prisma.cafeSection.findFirst({ where: { id: input.id, cafeId }, select: { id: true } });
+      if (!post) return fail('not_found', 404);
+      await prisma.$transaction([
+        prisma.arenaImage.deleteMany({ where: { cafeId, kind: `post:${post.id}` } }),
+        prisma.cafeSection.delete({ where: { id: post.id } }),
+      ]);
+      await audit({ post: post.id, removed: true });
+      return { ok: true };
+    }
+    case 'movePost': {
+      const list = await prisma.cafeSection.findMany({ where: { cafeId }, orderBy: { position: 'asc' }, select: { id: true } });
+      const i = list.findIndex((p) => p.id === input.id);
+      if (i < 0) return fail('not_found', 404);
+      const j = i + input.by;
+      if (j < 0 || j >= list.length) return { ok: true };
+      [list[i], list[j]] = [list[j], list[i]];
+      // Positions are unique per arena: park them out of the way first.
+      await prisma.$transaction([
+        ...list.map((p, k) => prisma.cafeSection.update({ where: { id: p.id }, data: { position: -(k + 1) } })),
+        ...list.map((p, k) => prisma.cafeSection.update({ where: { id: p.id }, data: { position: k + 1 } })),
+      ]);
+      return { ok: true };
+    }
+    case 'setPublished': {
+      await prisma.cafe.update({ where: { id: cafeId }, data: { isPublished: input.on } });
+      await audit({ published: input.on });
+      return { ok: true };
+    }
+    case 'setMember': {
+      const phone = normalizePhone(input.phone);
+      if (!phone) return fail('bad_phone');
+      const who = await prisma.user.findUnique({ where: { phone }, select: { id: true } });
+      // They must have signed in once with Telegram (that is how the phone is known).
+      if (!who) return fail('no_such_player', 404);
+      await prisma.arenaMember.upsert({
+        where: { cafeId_userId: { cafeId, userId: who.id } },
+        update: { role: input.role },
+        create: { cafeId, userId: who.id, role: input.role },
+      });
+      await audit({ member: who.id, role: input.role });
+      return { ok: true };
+    }
+    case 'removeMember': {
+      await prisma.arenaMember.deleteMany({ where: { cafeId, userId: input.userId } });
+      await audit({ member: input.userId, removed: true });
       return { ok: true };
     }
     case 'setGames': {
