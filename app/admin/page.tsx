@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { redirect } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import AdminHome from '@/components/admin/AdminHome';
 import { SiteFooter, SiteHeader } from '@/components/SiteChrome';
 import { getCurrentUser } from '@/lib/auth/session';
@@ -19,6 +19,9 @@ export default async function AdminPage() {
   const [locale, user] = await Promise.all([getLocale(), getCurrentUser()]);
   if (!user) redirect('/login?next=%2Fadmin');
   const arenas = await listMyArenas(user);
+  // Players (no arena, not the site owner) get "page not found": the
+  // dashboard is not theirs, and nothing here should hint that it exists.
+  if (!user.superAdmin && arenas.length === 0) notFound();
   // One arena and nothing else to do here: go straight to it.
   if (!user.superAdmin && arenas.length === 1) redirect(`/admin/${arenas[0].slug}`);
 
@@ -26,7 +29,7 @@ export default async function AdminPage() {
     <>
       <SiteHeader locale={locale} user={user} path="/admin" />
       <main className="mx-auto w-full max-w-site px-4 pb-10 lg:px-8">
-        <AdminHome locale={locale} superAdmin={user.superAdmin} telegramId={user.telegramId} arenas={arenas} />
+        <AdminHome locale={locale} superAdmin={user.superAdmin} arenas={arenas} />
       </main>
       <SiteFooter locale={locale} />
     </>

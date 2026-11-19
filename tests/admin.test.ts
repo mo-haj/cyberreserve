@@ -17,7 +17,7 @@ test('only the site owner may publish arenas and choose owners', () => {
 
 test('admin list comes from ADMIN_TELEGRAM_IDS', () => {
   const keep = process.env.ADMIN_TELEGRAM_IDS;
-  process.env.ADMIN_TELEGRAM_IDS = '111111, 222222 abc';
+  process.env.ADMIN_TELEGRAM_IDS = '"111111", 222222 abc';
   assert.equal(isSuperAdminTelegram('111111'), true);
   assert.equal(isSuperAdminTelegram('222222'), true);
   assert.equal(isSuperAdminTelegram('abc'), false);

@@ -23,8 +23,6 @@ export interface CurrentUser {
   manages: boolean;
   /** The site owner (ADMIN_TELEGRAM_IDS): can manage every arena. */
   superAdmin: boolean;
-  /** Telegram account ID, shown to the user on the dashboard so they can be listed as admin. */
-  telegramId: string | null;
 }
 
 export async function createLoginRequest(locale: 'ar' | 'en' = 'ar') {
@@ -107,7 +105,6 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       homeCity: u.homeCity,
       manages: u._count.arenas > 0 || isSuperAdminTelegram(u.telegramChatId),
       superAdmin: isSuperAdminTelegram(u.telegramChatId),
-      telegramId: u.telegramChatId,
     };
   } catch (err) {
     // A database hiccup must not take pages down; the visitor just looks signed out.

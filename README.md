@@ -37,8 +37,8 @@ What works today:
   7 days. Players see and cancel their bookings on their profile ("حجوزاتي"). The reminder job runs
   inside the website every minute (turn it off with `BOOKING_JOBS=off`).
 - **Dashboard** (`/admin`, later `admin.<your domain>`): one place for the site owner and arena owners.
-  - **Site owner (super admin)**: put your Telegram account ID in `ADMIN_TELEGRAM_IDS` (the dashboard
-    shows it once you sign in). You see every arena, **add arenas** (they start hidden), **publish or
+  - **Site owner (super admin)**: put your Telegram account ID in `ADMIN_TELEGRAM_IDS` (get it from
+    @userinfobot in Telegram). You see every arena, **add arenas** (they start hidden), **publish or
     hide** them, and add/remove **owners and staff** by phone number (tab "الإدارة").
   - **Arena owners** manage only their own arena: start a walk-in on a station (1/2/3 h) or free it, set stations out of
   service, add/edit/remove stations (PC, PS5, PS4, Xbox, own prices), edit the arena's details,
@@ -248,7 +248,7 @@ CLAUDE.md, docs/         engineering standard and the original phase prompts
 | `web` keeps restarting | `docker compose logs web`. Usually the password in `DATABASE_URL` does not match `POSTGRES_PASSWORD`. |
 | `P1000 authentication failed` after changing `.env` | The database was created with the old password. `docker compose down -v` and start again (deletes data). |
 | Port 3000 busy | Stop the other program, or change the left `3000` in `docker-compose.yml`. |
-| `/admin` says you manage no arena | Add your Telegram ID (shown there) to `ADMIN_TELEGRAM_IDS`, or have the site owner add you to an arena. |
+| `/admin` says no arena is linked | Site owner: add your Telegram ID (from @userinfobot) to `ADMIN_TELEGRAM_IDS`. Arena owners: the site owner adds you in the arena's Access tab. |
 
 ## Full site on Vercel + Neon (free, no PC needed)
 
@@ -264,15 +264,14 @@ Vercel runs the site, **Neon** is the database, **cron-job.org** triggers the mi
    - `DIRECT_URL` = direct address
    - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET` = same as in `.env`
    - `CRON_SECRET` = a long random text (letters and digits, 32+)
-   - `ADMIN_TELEGRAM_IDS` = your Telegram account ID (the dashboard shows it after you sign in)
+   - `ADMIN_TELEGRAM_IDS` = your Telegram account ID (message @userinfobot in Telegram: the "Id" number)
    - delete `PREVIEW_MODE`
 3. **Deployments → ⋯ → Redeploy**. The build (`scripts/vercel-build.mjs`) creates the tables,
    adds the demo arenas, and points the Telegram bot at the site.
    From then on the bot answers through Vercel; the helper on the PC shows "409" and can be stopped.
 4. **cron-job.org** (free): create a job, URL
    `https://<your-site>/api/cron/tick?key=<CRON_SECRET>`, every **1 minute**.
-5. Sign in on the site, open **/admin**, copy the Telegram ID it shows into `ADMIN_TELEGRAM_IDS`,
-   redeploy: you are the site admin and can add arenas and owners from the dashboard.
+5. Put your Telegram ID (from @userinfobot) in `ADMIN_TELEGRAM_IDS` and redeploy, then open **/admin**: you are the site admin and can add arenas and owners from the dashboard.
 
 To go back to the bot on the PC: in a browser open
 `https://api.telegram.org/bot<TOKEN>/deleteWebhook` (with your token), then restart the helper.

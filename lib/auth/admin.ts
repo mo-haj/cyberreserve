@@ -6,7 +6,9 @@
 export function adminTelegramIds(): Set<string> {
   return new Set(
     (process.env.ADMIN_TELEGRAM_IDS ?? '')
-      .split(/[,\s]+/)
+      // Tolerates quotes and spaces pasted with the value ("905737127", 1, 2).
+      .replace(/["']/g, '')
+      .split(/[,;\s]+/)
       .map((s) => s.trim())
       .filter((s) => /^\d{3,20}$/.test(s)),
   );

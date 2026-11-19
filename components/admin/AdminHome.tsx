@@ -26,12 +26,10 @@ export interface AdminArena {
 export default function AdminHome({
   locale,
   superAdmin,
-  telegramId,
   arenas,
 }: {
   locale: Locale;
   superAdmin: boolean;
-  telegramId: string | null;
   arenas: AdminArena[];
 }) {
   const m = manageText(locale);
@@ -45,7 +43,7 @@ export default function AdminHome({
             <p className="mb-1 inline-block bg-gold px-2 py-0.5 font-hud text-xs font-bold text-void">{m.superAdmin}</p>
           )}
           <h1 className="font-display text-3xl font-extrabold text-ink neon sm:text-4xl">{m.title}</h1>
-          <p className="mt-1 text-muted">{superAdmin ? m.allArenas : m.myArenas}</p>
+          {(superAdmin || arenas.length > 0) && <p className="mt-1 text-muted">{superAdmin ? m.allArenas : m.myArenas}</p>}
         </div>
         {superAdmin && (
           <button type="button" className="btn-neon" onClick={() => setAdding(true)}>
@@ -55,15 +53,18 @@ export default function AdminHome({
       </div>
 
       {arenas.length === 0 ? (
-        <section className="hud max-w-2xl p-6">
-          <p className="text-muted">{m.none}</p>
-          {telegramId && (
-            <p className="mt-4 text-xs text-muted/80">
-              {m.telegramId(telegramId)}
-              <br />
-              {m.telegramIdHint}
-            </p>
-          )}
+        <section className="mx-auto flex min-h-[50vh] max-w-xl flex-col items-center justify-center text-center">
+          <span
+            aria-hidden="true"
+            className="grid h-16 w-16 place-items-center bg-violet/15 text-violet-soft shadow-[inset_0_0_0_1px_rgba(157,92,255,0.5)]"
+          >
+            <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <rect x="3" y="4" width="18" height="12" rx="1" />
+              <path d="M8 20h8M12 16v4" strokeLinecap="round" />
+            </svg>
+          </span>
+          <h2 className="mt-5 font-display text-2xl font-bold text-ink sm:text-3xl">{m.noneTitle}</h2>
+          <p className="mt-2 text-muted">{m.none}</p>
         </section>
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

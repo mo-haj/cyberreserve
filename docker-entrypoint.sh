@@ -9,7 +9,7 @@ PRISMA="node node_modules/prisma/build/index.js"
 TSX="node node_modules/tsx/dist/cli.mjs"
 
 if [ -z "$ADMIN_TELEGRAM_IDS" ]; then
-  echo "[entrypoint] note: ADMIN_TELEGRAM_IDS is empty, so nobody is site admin yet (sign in, open /admin to see your ID)."
+  echo "[entrypoint] note: ADMIN_TELEGRAM_IDS is empty, so nobody is site admin yet (your ID: message @userinfobot in Telegram)."
 fi
 
 echo "[entrypoint] applying migrations..."
