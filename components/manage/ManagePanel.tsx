@@ -11,6 +11,9 @@ import { googleMapsUrl } from '@/lib/maps';
 import { parseLatLng } from '@/lib/manage/rules';
 import { Field, IconButton, TextArea } from '@/components/manage/fields';
 import { Access, Players, Posts } from '@/components/manage/tabs';
+import { StationPanel, StationTile } from '@/components/manage/floor';
+import { shrinkImage } from '@/lib/manage/shrink';
+import { GENRES, type GenreKey } from '@/prisma/games-data';
 import { formatDamascusTime, toDamascusParts } from '@/lib/time';
 
 // Owner panel: live floor with walk-in controls, station editing, arena
@@ -83,40 +86,68 @@ export default function ManagePanel({
     return () => clearInterval(timer);
   }, [slug]);
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: 'stations', label: m.tabs.stations },
-    ...(owner ? ([{ key: 'zones', label: m.tabs.zones }] as const) : []),
-    { key: 'bookings', label: `${m.tabs.bookings}${data.bookings.length ? ` (${data.bookings.length})` : ''}` },
+  const bookingsLabel = `${m.tabs.bookings}${data.bookings.length ? ` (${data.bookings.length})` : ''}`;
+  // Tabs grouped by what the owner is doing: running today, editing the public
+  // page, or looking after people.
+  const tabGroups: { name: string; tabs: { key: Tab; label: string }[] }[] = [
+    { name: m.groups.today, tabs: [{ key: 'stations', label: m.tabs.stations }, { key: 'bookings', label: bookingsLabel }] },
     ...(owner
-      ? ([
-          { key: 'players', label: m.tabs.players },
-          { key: 'posts', label: m.tabs.posts },
-          { key: 'arena', label: m.tabs.arena },
-          { key: 'games', label: m.tabs.games },
-        ] as const)
+      ? [
+          {
+            name: m.groups.page,
+            tabs: [
+              { key: 'arena' as Tab, label: m.tabs.arena },
+              { key: 'zones' as Tab, label: m.tabs.zones },
+              { key: 'posts' as Tab, label: m.tabs.posts },
+              { key: 'games' as Tab, label: m.tabs.games },
+            ],
+          },
+          {
+            name: m.groups.people,
+            tabs: [{ key: 'players' as Tab, label: m.tabs.players }, ...(superAdmin ? [{ key: 'owners' as Tab, label: m.tabs.owners }] : [])],
+          },
+        ]
       : []),
-    ...(superAdmin ? ([{ key: 'owners', label: m.tabs.owners }] as const) : []),
   ];
 
   return (
     <div className="space-y-5">
-      <div role="tablist" className="flex flex-wrap gap-2">
-        {tabs.map((x) => (
-          <button
-            key={x.key}
-            role="tab"
-            type="button"
-            aria-selected={tab === x.key}
-            onClick={() => {
-              setTab(x.key);
-              action.setError(null);
-            }}
-            className={`city-option px-4 py-2 text-sm ${tab === x.key ? 'city-option-on text-ink' : 'text-muted hover:text-ink'}`}
-          >
-            {x.label}
-          </button>
+      <nav role="tablist" className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        {tabGroups.map((g) => (
+          <div key={g.name} className="flex flex-col gap-1.5">
+            <span className="px-1 text-xs text-muted/80">{g.name}</span>
+            <div className="flex flex-wrap gap-1.5">
+              {g.tabs.map((x) => (
+                <button
+                  key={x.key}
+                  role="tab"
+                  type="button"
+                  aria-selected={tab === x.key}
+                  onClick={() => {
+                    setTab(x.key);
+                    action.setError(null);
+                  }}
+                  className={`city-option px-4 py-2 text-sm ${tab === x.key ? 'city-option-on text-ink' : 'text-muted hover:text-ink'}`}
+                >
+                  {x.label}
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
-      </div>
+      </nav>
+      {!data.isPublished && (
+        <div className="panel-in flex flex-wrap items-center justify-between gap-3 bg-amber-400/10 px-4 py-3 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.55)]">
+          <p className="text-sm text-amber-200">
+            {m.hiddenBanner} {!superAdmin && <span className="text-amber-200/70">{m.hiddenWait}</span>}
+          </p>
+          {superAdmin && (
+            <button type="button" className="btn-neon text-sm" disabled={!!action.busy} onClick={() => action.run('publish', { action: 'setPublished', on: true })}>
+              {m.publish}
+            </button>
+          )}
+        </div>
+      )}
       {!owner && <p className="text-sm text-muted">{m.staffOnly}</p>}
       {action.error && (
         <p role="alert" className="panel-in bg-busy/10 px-4 py-3 text-sm text-busy shadow-[inset_0_0_0_1px_rgba(255,45,85,0.5)]">
@@ -132,7 +163,7 @@ export default function ManagePanel({
           <ArenaForm locale={locale} m={m} data={data} action={action} />
         </>
       )}
-      {tab === 'games' && owner && <GamesForm m={m} data={data} action={action} />}
+      {tab === 'games' && owner && <GamesForm locale={locale} slug={slug} m={m} data={data} setData={setData} action={action} />}
       {tab === 'players' && owner && <Players locale={locale} m={m} data={data} />}
       {tab === 'posts' && owner && <Posts locale={locale} slug={slug} m={m} data={data} setData={setData} action={action} />}
       {tab === 'owners' && superAdmin && <Access m={m} data={data} action={action} />}
@@ -146,7 +177,8 @@ export type Action = ReturnType<typeof useAction>;
 
 function Stations({ locale, m, data, owner, action }: { locale: Locale; m: ManageText; data: ManageData; owner: boolean; action: Action }) {
   const t = dictionary(locale);
-  const [editing, setEditing] = useState<ManageStation | 'new' | null>(null);
+  const [editing, setEditing] = useState<number | 'new' | null>(null);
+  const open = typeof editing === 'number' ? data.stations.find((s) => s.pcNumber === editing) ?? null : null;
   const counts = useMemo(() => {
     let free = 0;
     let busy = 0;
@@ -167,7 +199,10 @@ function Stations({ locale, m, data, owner, action }: { locale: Locale; m: Manag
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="font-hud text-sm text-muted">{m.summary(counts.free, counts.busy, counts.off)}</p>
+        <div>
+          <p className="font-hud text-sm text-muted">{m.summary(counts.free, counts.busy, counts.off)}</p>
+          <p className="text-xs text-muted/80">{m.floorHint}</p>
+        </div>
         {owner && (
           <button type="button" className="btn-neon text-sm" onClick={() => setEditing('new')}>
             + {m.add}
@@ -182,30 +217,37 @@ function Stations({ locale, m, data, owner, action }: { locale: Locale; m: Manag
             {t.station.typeTitle[g.type]}
             <span className="font-hud text-sm font-normal text-muted">{g.list.length}</span>
           </h2>
-          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {g.list.map((s) => (
-              <StationCard
+          <ul className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+            {g.list.map((s, i) => (
+              <StationTile
                 key={s.pcNumber}
                 s={s}
                 name={nameOf(s)}
+                num={typeIndex.get(s.pcNumber) ?? s.pcNumber}
+                index={i}
                 m={m}
-                owner={owner}
-                action={action}
-                onEdit={() => setEditing(s)}
+                onOpen={() => {
+                  action.setError(null);
+                  setEditing(s.pcNumber);
+                }}
               />
             ))}
           </ul>
         </section>
       ))}
 
-      {editing && (
-        <StationEditor
-          m={m}
+      {editing === 'new' && (
+        <AddStations m={m} locale={locale} stations={data.stations} arenaRate={data.arena.hourlyRate} action={action} onClose={() => setEditing(null)} />
+      )}
+      {open && (
+        <StationPanel
           locale={locale}
-          station={editing === 'new' ? null : editing}
-          name={editing === 'new' ? '' : nameOf(editing)}
-          arenaRate={data.arena.hourlyRate}
+          m={m}
+          s={open}
+          name={nameOf(open)}
+          owner={owner}
           groups={data.groups}
+          arenaRate={data.arena.hourlyRate}
           action={action}
           onClose={() => setEditing(null)}
         />
@@ -214,210 +256,128 @@ function Stations({ locale, m, data, owner, action }: { locale: Locale; m: Manag
   );
 }
 
-function StationCard({
-  s,
-  name,
-  m,
-  owner,
-  action,
-  onEdit,
-}: {
-  s: ManageStation;
-  name: string;
-  m: ManageText;
-  owner: boolean;
-  action: Action;
-  onEdit: () => void;
-}) {
-  const [confirm, setConfirm] = useState(false);
-  useEffect(() => {
-    if (!confirm) return;
-    const timer = setTimeout(() => setConfirm(false), 3500);
-    return () => clearTimeout(timer);
-  }, [confirm]);
-  const key = (k: string) => `${k}-${s.pcNumber}`;
-  const working = action.busy?.endsWith(`-${s.pcNumber}`);
-  const state = s.isMaintenance ? 'off' : s.busy ? 'busy' : 'free';
-  const tone =
-    state === 'free'
-      ? 'shadow-[inset_0_0_0_1px_rgba(43,255,136,0.45)] bg-free/[0.05]'
-      : state === 'busy'
-        ? 'shadow-[inset_0_0_0_1px_rgba(255,45,85,0.45)] bg-busy/[0.05]'
-        : 'shadow-[inset_0_0_0_1px_rgba(74,82,121,0.7)] bg-panel2/40';
-
-  return (
-    <li className={`flex flex-col gap-3 p-3.5 transition-colors [clip-path:polygon(10px_0,100%_0,100%_calc(100%-10px),calc(100%-10px)_100%,0_100%,0_10px)] ${tone} ${working ? 'opacity-60' : ''}`}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-semibold text-ink">
-            {name}
-            {s.label && <span className="ms-2 text-xs font-normal text-muted">{s.label}</span>}
-          </p>
-          <p className={`text-sm ${state === 'free' ? 'text-free' : state === 'busy' ? 'text-busy' : 'text-muted'}`}>
-            {state === 'free' && m.free}
-            {state === 'off' && m.inMaintenance}
-            {state === 'busy' && s.busy && (
-              <>
-                {m.busyUntil(formatDamascusTime(new Date(s.busy.until)))}
-                <span className="text-xs text-muted"> · {s.busy.walkIn ? m.walkIn : m.online}</span>
-              </>
-            )}
-          </p>
-        </div>
-        {owner && (
-          <div className="flex shrink-0 gap-1">
-            <IconButton label={m.edit} onClick={onEdit}>
-              <path d="M4 20h4L19 9l-4-4L4 16v4z" strokeLinejoin="round" />
-            </IconButton>
-            <IconButton
-              label={confirm ? m.confirmRemove : m.remove}
-              danger={confirm}
-              onClick={() => (confirm ? action.run(key('rm'), { action: 'removeStation', pcNumber: s.pcNumber }) : setConfirm(true))}
-            >
-              <path d="M5 7h14M10 11v6M14 11v6M7 7l1 13h8l1-13M9 7V4h6v3" strokeLinejoin="round" strokeLinecap="round" />
-            </IconButton>
-          </div>
-        )}
-      </div>
-      {confirm && <p className="panel-in text-xs text-busy">{m.confirmRemove}</p>}
-
-      <div className="flex flex-wrap items-center gap-2">
-        {state === 'free' && (
-          <>
-            <span className="text-xs text-muted">{m.walkInFor}</span>
-            {[1, 2, 3].map((h) => (
-              <button
-                key={h}
-                type="button"
-                disabled={!!working}
-                className="btn-ghost !min-h-[2rem] !px-2.5 text-xs"
-                onClick={() => action.run(key('walk'), { action: 'walkIn', pcNumber: s.pcNumber, minutes: h * 60 })}
-              >
-                {m.hours(h)}
-              </button>
-            ))}
-          </>
-        )}
-        {state === 'busy' && (
-          <button
-            type="button"
-            disabled={!!working}
-            className="btn-neon !min-h-[2rem] text-xs"
-            onClick={() => action.run(key('free'), { action: 'freeNow', pcNumber: s.pcNumber })}
-          >
-            {m.freeNow}
-          </button>
-        )}
-        <button
-          type="button"
-          disabled={!!working}
-          className="ms-auto text-xs text-muted underline-offset-4 hover:text-ink hover:underline"
-          onClick={() => action.run(key('mt'), { action: 'maintenance', pcNumber: s.pcNumber, on: !s.isMaintenance })}
-        >
-          {s.isMaintenance ? m.maintenanceOff : m.maintenanceOn}
-        </button>
-      </div>
-    </li>
-  );
-}
-
-
-function StationEditor({
+function AddStations({
   m,
   locale,
-  station,
-  name,
+  stations,
   arenaRate,
-  groups,
   action,
   onClose,
 }: {
   m: ManageText;
   locale: Locale;
-  station: ManageStation | null;
-  name: string;
+  stations: ManageStation[];
   arenaRate: string;
-  groups: ManageGroup[];
   action: Action;
   onClose: () => void;
 }) {
   const t = dictionary(locale);
   const ref = useRef<HTMLDialogElement>(null);
-  const [form, setForm] = useState({
-    type: station?.type ?? 'PC',
-    count: 1,
-    label: station?.label ?? '',
-    groupId: station?.groupId ?? '',
-    hourlyRate: station?.hourlyRate ?? '',
-    nightRate: station?.nightRate ?? '',
-  });
+  const blank = { count: 0, hourlyRate: '', nightRate: '' };
+  const [rows, setRows] = useState<Record<(typeof TYPES)[number], typeof blank>>({ PC: { ...blank }, PS5: { ...blank }, PS4: { ...blank }, XBOX: { ...blank } });
+  const [prices, setPrices] = useState<Partial<Record<(typeof TYPES)[number], boolean>>>({});
   useEffect(() => {
     ref.current?.showModal();
   }, []);
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [k]: k === 'count' ? Math.max(1, Math.min(30, Number(e.target.value) || 1)) : e.target.value }));
+  const have = (type: string) => stations.filter((s) => s.type === type).length;
+  const total = TYPES.reduce((n, type) => n + rows[type].count, 0);
+  const setRow = (type: (typeof TYPES)[number], patch: Partial<typeof blank>) => setRows((r) => ({ ...r, [type]: { ...r[type], ...patch } }));
+  const clamp = (n: number) => Math.max(0, Math.min(30, Number.isFinite(n) ? Math.round(n) : 0));
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    // A zone of another type can't hold this station: send "no zone" then.
-    const groupId = groups.some((g) => g.id === form.groupId && g.type === form.type) ? form.groupId : '';
-    const base = { type: form.type, label: form.label, groupId, hourlyRate: form.hourlyRate, nightRate: form.nightRate };
-    const ok = station
-      ? await action.run('edit', { action: 'editStation', pcNumber: station.pcNumber, ...base })
-      : await action.run('add', { action: 'addStations', count: form.count, ...base });
-    if (ok) onClose();
+    for (const type of TYPES) {
+      const r = rows[type];
+      if (r.count === 0) continue;
+      const ok = await action.run(`add-${type}`, { action: 'addStations', type, count: r.count, label: '', hourlyRate: r.hourlyRate, nightRate: r.nightRate });
+      if (!ok) return; // keep the dialog open with the error; earlier types are already added
+      setRow(type, { count: 0 });
+    }
+    onClose();
   }
 
   return (
-    <dialog ref={ref} onClose={onClose} className="cr-modal m-auto w-[calc(100%-1.5rem)] max-w-lg bg-transparent p-0 text-ink">
-      <form onSubmit={save} className="panel-in hud space-y-4 p-6" style={{ background: '#0B0F24' }}>
-        <h2 className="font-display text-2xl font-bold text-ink">{station ? m.editTitle(name) : m.addTitle}</h2>
-        <fieldset>
-          <legend className="text-sm font-semibold text-ink">{m.type}</legend>
-          <div className="mt-2 grid grid-cols-4 gap-2">
-            {TYPES.map((type) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => setForm((f) => ({ ...f, type }))}
-                aria-pressed={form.type === type}
-                className={`city-option flex flex-col items-center gap-1 py-2 text-xs ${form.type === type ? 'city-option-on text-ink' : 'text-muted'}`}
-              >
-                <StationIcon type={type} className="h-5 w-6" />
-                {t.station.typeShort[type]}
-              </button>
-            ))}
-          </div>
-        </fieldset>
-        {!station && <Field label={m.count} type="number" value={String(form.count)} onChange={set('count')} min={1} max={30} />}
-        <Field label={m.label} value={form.label} onChange={set('label')} maxLength={40} />
-        {groups.some((g) => g.type === form.type) && (
-          <fieldset>
-            <legend className="text-sm font-semibold text-ink">{m.zone}</legend>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {[{ id: '', label: m.noZone }, ...groups.filter((g) => g.type === form.type).map((g) => ({ id: g.id, label: groupName(g, locale) || m.unnamed }))].map((o) => (
-                <button
-                  key={o.id || 'none'}
-                  type="button"
-                  aria-pressed={form.groupId === o.id}
-                  onClick={() => setForm((f) => ({ ...f, groupId: o.id }))}
-                  className={`city-option px-3 py-1.5 text-sm ${form.groupId === o.id ? 'city-option-on text-ink' : 'text-muted hover:text-ink'}`}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-        )}
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={m.ownPrice} value={form.hourlyRate} onChange={set('hourlyRate')} inputMode="decimal" dir="ltr" />
-          <Field label={m.ownNight} value={form.nightRate} onChange={set('nightRate')} inputMode="decimal" dir="ltr" />
+    <dialog ref={ref} onClose={onClose} className="cr-modal m-auto w-[calc(100%-1.5rem)] max-w-xl overflow-hidden bg-transparent p-0 text-ink">
+      <form onSubmit={save} className="panel-in hud flex max-h-[calc(100dvh-4rem)] flex-col" style={{ background: '#0B0F24' }}>
+        <div className="p-6 pb-3">
+          <h2 className="font-display text-2xl font-bold text-ink">{m.addTitle}</h2>
+          <p className="mt-1 text-sm text-muted">{m.addHint}</p>
         </div>
-        <p className="text-xs text-muted">{m.priceHint(arenaRate)}</p>
-        {action.error && <p className="text-sm text-busy">{action.error}</p>}
-        <div className="flex gap-2 pt-2">
-          <button type="submit" className="btn-neon" disabled={!!action.busy}>
-            {action.busy ? m.saving : m.save}
+        <ul className="cr-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-6 pb-4">
+          {TYPES.map((type) => {
+            const r = rows[type];
+            const from = have(type) + 1;
+            const to = have(type) + r.count;
+            return (
+              <li key={type} className={`p-3 transition-shadow ${r.count > 0 ? 'bg-violet/10 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.6)]' : 'bg-void/50 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.2)]'}`}>
+                <div className="flex items-center gap-3">
+                  <StationIcon type={type} className={`h-6 w-7 shrink-0 ${r.count > 0 ? 'text-violet-soft' : 'text-muted'}`} />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-ink">{t.station.typeTitle[type]}</p>
+                    <p className="text-xs text-muted">
+                      {r.count > 0 ? (
+                        <>
+                          {m.willBe}{' '}
+                          <bdi dir="ltr" className="font-hud text-cyan">
+                            {t.station.typeShort[type]} {from === to ? from : `${from}–${to}`}
+                          </bdi>
+                        </>
+                      ) : (
+                        m.haveN(have(type))
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex items-stretch" dir="ltr">
+                    <button
+                      type="button"
+                      aria-label={m.fewer}
+                      disabled={r.count === 0}
+                      onClick={() => setRow(type, { count: clamp(r.count - 1) })}
+                      className="city-option w-9 text-lg text-ink disabled:opacity-30"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={30}
+                      value={r.count}
+                      onChange={(e) => setRow(type, { count: clamp(Number(e.target.value)) })}
+                      aria-label={`${m.count}: ${t.station.typeTitle[type]}`}
+                      className="w-12 bg-void/70 text-center font-hud text-lg text-ink outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <button
+                      type="button"
+                      aria-label={m.more1}
+                      disabled={r.count >= 30}
+                      onClick={() => setRow(type, { count: clamp(r.count + 1) })}
+                      className="city-option w-9 text-lg text-ink disabled:opacity-30"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                {r.count > 0 &&
+                  (prices[type] ? (
+                    <div className="panel-in mt-3 grid grid-cols-2 gap-3">
+                      <Field label={m.ownPrice} value={r.hourlyRate} onChange={(e) => setRow(type, { hourlyRate: e.target.value })} inputMode="decimal" dir="ltr" placeholder={arenaRate} />
+                      <Field label={m.ownNight} value={r.nightRate} onChange={(e) => setRow(type, { nightRate: e.target.value })} inputMode="decimal" dir="ltr" />
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setPrices((p) => ({ ...p, [type]: true }))} className="mt-2 text-xs text-cyan hover:underline">
+                      {m.setOwnPrice}
+                    </button>
+                  ))}
+              </li>
+            );
+          })}
+          <p className="text-xs text-muted">{m.priceHint(arenaRate)}</p>
+          {action.error && <p className="text-sm text-busy">{action.error}</p>}
+        </ul>
+        <div className="flex items-center gap-2 border-t border-line p-4 px-6">
+          <button type="submit" className="btn-neon" disabled={!!action.busy || total === 0}>
+            {action.busy ? m.saving : m.addN(total)}
           </button>
           <button type="button" className="btn-ghost" onClick={onClose}>
             {m.cancel}
@@ -427,7 +387,6 @@ function StationEditor({
     </dialog>
   );
 }
-
 
 // ------------------------------------------------------------------ arena
 
@@ -502,11 +461,39 @@ function ArenaForm({ locale, m, data, action }: { locale: Locale; m: ManageText;
 
 // ------------------------------------------------------------------ games
 
-function GamesForm({ m, data, action }: { m: ManageText; data: ManageData; action: Action }) {
+const GENRE_KEYS = Object.keys(GENRES) as GenreKey[];
+
+function GamesForm({
+  locale,
+  slug,
+  m,
+  data,
+  setData,
+  action,
+}: {
+  locale: Locale;
+  slug: string;
+  m: ManageText;
+  data: ManageData;
+  setData: (d: ManageData) => void;
+  action: Action;
+}) {
   const [selected, setSelected] = useState(new Set(data.games.selected));
   const [query, setQuery] = useState('');
   const [saved, setSaved] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newGenre, setNewGenre] = useState<GenreKey>('other');
   const shown = data.games.catalogue.filter((g) => !query || g.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const own = data.games.catalogue.filter((g) => g.custom);
+
+  // A newly added game comes ticked; a deleted one drops out.
+  const known = useRef(new Set(data.games.catalogue.map((g) => g.slug)));
+  useEffect(() => {
+    const now = data.games.catalogue.map((g) => g.slug);
+    const fresh = now.filter((x) => !known.current.has(x));
+    known.current = new Set(now);
+    setSelected((s) => new Set([...[...s].filter((x) => known.current.has(x)), ...fresh]));
+  }, [data.games]);
 
   function toggle(slug: string) {
     setSaved(false);
@@ -518,55 +505,201 @@ function GamesForm({ m, data, action }: { m: ManageText; data: ManageData; actio
     });
   }
 
+  async function addGame(e: React.FormEvent) {
+    e.preventDefault();
+    const name = newName.trim();
+    if (!name) return;
+    const known = data.games.catalogue.find((g) => g.name.toLowerCase() === name.toLowerCase());
+    if (await action.run('addGame', { action: 'addGame', name, genre: newGenre })) {
+      setNewName('');
+      if (known) setSelected((s) => new Set(s).add(known.slug));
+    }
+  }
+
   return (
-    <div className="hud space-y-5 p-5 sm:p-7">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-muted">
-          {m.gamesHint} <span className="font-hud text-cyan">{m.gamesSelected(selected.size)}</span>
-        </p>
-        <button
-          type="button"
-          className="btn-neon"
-          disabled={!!action.busy}
-          onClick={async () => {
-            if (await action.run('games', { action: 'setGames', slugs: [...selected] })) setSaved(true);
-          }}
-        >
-          {action.busy ? m.saving : saved ? m.saved : m.save}
-        </button>
+    <div className="space-y-5">
+      <div className="hud space-y-4 p-5 sm:p-7">
+        <div>
+          <h2 className="font-display text-lg font-bold text-ink">{m.ownGameTitle}</h2>
+          <p className="mt-1 text-sm text-muted">{m.ownGameHint}</p>
+        </div>
+        <form onSubmit={addGame} className="flex flex-wrap items-end gap-3">
+          <label className="min-w-[12rem] flex-[2]">
+            <span className="text-sm font-semibold text-ink">{m.gameName}</span>
+            <span className="scan-field mt-1.5 flex px-4">
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                maxLength={60}
+                dir="auto"
+                placeholder="Cyrus"
+                className="min-w-0 flex-1 bg-transparent py-2.5 text-ink placeholder:text-muted/50 outline-none"
+              />
+            </span>
+          </label>
+          <label className="min-w-[9rem] flex-1">
+            <span className="text-sm font-semibold text-ink">{m.gameGenre}</span>
+            <span className="scan-field mt-1.5 flex px-3">
+              <select
+                value={newGenre}
+                onChange={(e) => setNewGenre(e.target.value as GenreKey)}
+                className="min-w-0 flex-1 bg-transparent py-2.5 text-ink outline-none [&>option]:bg-panel"
+              >
+                {GENRE_KEYS.map((k) => (
+                  <option key={k} value={k}>
+                    {pick(locale, GENRES[k].en, GENRES[k].ar)}
+                  </option>
+                ))}
+              </select>
+            </span>
+          </label>
+          <button type="submit" className="btn-neon" disabled={!!action.busy || !newName.trim()}>
+            + {m.addGame}
+          </button>
+        </form>
+        {own.length > 0 && (
+          <div>
+            <p className="mb-2 text-sm font-semibold text-ink">{m.yourGames}</p>
+            <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {own.map((g) => (
+                <OwnGame key={g.slug} locale={locale} slug={slug} m={m} game={g} setData={setData} action={action} />
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
-      <label className="scan-field flex items-center gap-3 px-4">
-        <span className="sr-only">{m.search}</span>
+
+      <div className="hud space-y-5 p-5 sm:p-7">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-muted">
+            {m.gamesHint} <span className="font-hud text-cyan">{m.gamesSelected(selected.size)}</span>
+          </p>
+          <button
+            type="button"
+            className="btn-neon"
+            disabled={!!action.busy}
+            onClick={async () => {
+              if (await action.run('games', { action: 'setGames', slugs: [...selected] })) setSaved(true);
+            }}
+          >
+            {action.busy === 'games' ? m.saving : saved ? m.saved : m.save}
+          </button>
+        </div>
+        <label className="scan-field flex items-center gap-3 px-4">
+          <span className="sr-only">{m.search}</span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={m.search}
+            className="min-w-0 flex-1 bg-transparent py-2.5 text-ink placeholder:text-muted/70 outline-none"
+          />
+        </label>
+        <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {shown.map((g) => {
+            const on = selected.has(g.slug);
+            return (
+              <li key={g.slug}>
+                <button
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggle(g.slug)}
+                  className={`city-option flex w-full items-center gap-2 px-3 py-2.5 text-start text-sm ${on ? 'city-option-on text-ink' : 'text-muted hover:text-ink'}`}
+                >
+                  <span aria-hidden="true" className={`grid h-4 w-4 shrink-0 place-items-center text-[10px] ${on ? 'bg-cyan text-void' : 'shadow-[inset_0_0_0_1px_rgba(157,92,255,0.5)]'}`}>
+                    {on ? '✓' : ''}
+                  </span>
+                  <span dir="auto" className="truncate">
+                    {g.name}
+                  </span>
+                  {g.custom && <span aria-hidden="true" className="ms-auto h-1.5 w-1.5 shrink-0 bg-violet-soft" title={m.yourGames} />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function OwnGame({
+  locale,
+  slug,
+  m,
+  game,
+  setData,
+  action,
+}: {
+  locale: Locale;
+  slug: string;
+  m: ManageText;
+  game: ManageData['games']['catalogue'][number];
+  setData: (d: ManageData) => void;
+  action: Action;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  useEffect(() => {
+    if (!confirm) return;
+    const t = setTimeout(() => setConfirm(false), 3500);
+    return () => clearTimeout(t);
+  }, [confirm]);
+
+  async function photo(file: File) {
+    setBusy(true);
+    action.setError(null);
+    try {
+      const form = new FormData();
+      form.set('kind', 'game');
+      form.set('itemId', game.id);
+      form.set('file', await shrinkImage(file, 'game'), 'photo');
+      const res = await fetch(`/api/manage/${slug}/image`, { method: 'POST', body: form, signal: AbortSignal.timeout(45_000) });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) action.setError(m.errors[json.error] ?? m.errors.generic);
+      else setData(json.data);
+    } catch {
+      action.setError(m.errors.generic);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className="flex items-center gap-3 bg-void/50 p-2 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.3)]">
+      <label className={`relative grid h-12 w-12 shrink-0 cursor-pointer place-items-center overflow-hidden bg-panel2 text-xs text-muted ${busy ? 'opacity-60' : ''}`}>
+        {game.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={game.imageUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <span>{busy ? '…' : m.gamePhoto}</span>
+        )}
         <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={m.search}
-          className="min-w-0 flex-1 bg-transparent py-2.5 text-ink placeholder:text-muted/70 outline-none"
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="sr-only"
+          disabled={busy}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (f) void photo(f);
+          }}
         />
       </label>
-      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-        {shown.map((g) => {
-          const on = selected.has(g.slug);
-          return (
-            <li key={g.slug}>
-              <button
-                type="button"
-                aria-pressed={on}
-                onClick={() => toggle(g.slug)}
-                className={`city-option flex w-full items-center gap-2 px-3 py-2.5 text-start text-sm ${on ? 'city-option-on text-ink' : 'text-muted hover:text-ink'}`}
-              >
-                <span aria-hidden="true" className={`grid h-4 w-4 shrink-0 place-items-center text-[10px] ${on ? 'bg-cyan text-void' : 'shadow-[inset_0_0_0_1px_rgba(157,92,255,0.5)]'}`}>
-                  {on ? '✓' : ''}
-                </span>
-                <span dir="ltr" className="truncate">
-                  {g.name}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+      <div className="min-w-0 flex-1">
+        <p dir="auto" className="truncate text-sm font-semibold text-ink">
+          {game.name}
+        </p>
+        <p className="truncate text-xs text-muted">{pick(locale, game.genreEn, game.genreAr)}</p>
+      </div>
+      <button
+        type="button"
+        disabled={!!action.busy}
+        onClick={() => (confirm ? action.run('rmgame', { action: 'removeGame', slug: game.slug }) : setConfirm(true))}
+        className={`shrink-0 px-2 text-xs ${confirm ? 'font-semibold text-busy' : 'text-muted hover:text-busy'}`}
+      >
+        {confirm ? m.confirmRemove : m.deleteGame}
+      </button>
+    </li>
   );
 }
 
@@ -688,9 +821,9 @@ function Images({
     setError(null);
     const form = new FormData();
     form.set('kind', kind);
-    form.set('file', file);
     try {
-      const res = await fetch(`/api/manage/${slug}/image`, { method: 'POST', body: form });
+      form.set('file', await shrinkImage(file, kind), 'photo');
+      const res = await fetch(`/api/manage/${slug}/image`, { method: 'POST', body: form, signal: AbortSignal.timeout(45_000) });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) setError(m.errors[json.error] ?? m.errors.generic);
       else setData(json.data);
@@ -1028,8 +1161,8 @@ function ZoneEditor({
         const form = new FormData();
         form.set('kind', 'group');
         form.set('groupId', zone.id);
-        form.set('file', file);
-        res = await fetch(`/api/manage/${slug}/image`, { method: 'POST', body: form });
+        form.set('file', await shrinkImage(file, 'group'), 'photo');
+        res = await fetch(`/api/manage/${slug}/image`, { method: 'POST', body: form, signal: AbortSignal.timeout(45_000) });
       } else {
         res = await fetch(`/api/manage/${slug}/image?kind=group&groupId=${zone.id}`, { method: 'DELETE' });
       }

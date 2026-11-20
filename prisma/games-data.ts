@@ -8,7 +8,7 @@ export interface GameData {
   genre: GenreKey;
 }
 
-export type GenreKey = 'shooter' | 'moba' | 'battle' | 'sports' | 'racing' | 'fighting' | 'open' | 'strategy' | 'coop';
+export type GenreKey = 'shooter' | 'moba' | 'battle' | 'sports' | 'racing' | 'fighting' | 'open' | 'strategy' | 'coop' | 'other';
 
 export const GENRES: Record<GenreKey, { en: string; ar: string }> = {
   shooter: { en: 'Shooter', ar: 'تصويب' },
@@ -20,6 +20,7 @@ export const GENRES: Record<GenreKey, { en: string; ar: string }> = {
   open: { en: 'Open world', ar: 'عالم مفتوح' },
   strategy: { en: 'Strategy', ar: 'استراتيجية' },
   coop: { en: 'Co-op', ar: 'لعب جماعي' },
+  other: { en: 'Other', ar: 'أخرى' },
 };
 
 export const GAMES: GameData[] = [

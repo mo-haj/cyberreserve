@@ -51,6 +51,8 @@ export const ManageAction = z.discriminatedUnion('action', [
   // Staff and owners: the live floor.
   z.object({ action: z.literal('walkIn'), pcNumber: PcNumber, minutes: z.number().int().min(15).max(12 * 60) }),
   z.object({ action: z.literal('freeNow'), pcNumber: PcNumber }),
+  // Add time to the session running on a station now.
+  z.object({ action: z.literal('extend'), pcNumber: PcNumber, minutes: z.number().int().min(15).max(6 * 60) }),
   z.object({ action: z.literal('maintenance'), pcNumber: PcNumber, on: z.boolean() }),
   z.object({
     action: z.literal('markBooking'),
@@ -111,8 +113,8 @@ export const ManageAction = z.discriminatedUnion('action', [
     id: Uuid.optional(),
     titleAr: ShortText(80),
     titleEn: ShortText(80),
-    bodyAr: ShortText(1000),
-    bodyEn: ShortText(1000),
+    bodyAr: ShortText(5000),
+    bodyEn: ShortText(5000),
   }),
   z.object({ action: z.literal('removePost'), id: Uuid }),
   z.object({ action: z.literal('movePost'), id: Uuid, by: z.union([z.literal(-1), z.literal(1)]) }),
@@ -120,12 +122,18 @@ export const ManageAction = z.discriminatedUnion('action', [
   z.object({ action: z.literal('setPublished'), on: z.boolean() }),
   z.object({ action: z.literal('setMember'), phone: Text(6, 30), role: z.enum(['OWNER', 'STAFF']) }),
   z.object({ action: z.literal('removeMember'), userId: Uuid }),
+  z.object({
+    action: z.literal('addGame'),
+    name: Text(1, 60),
+    genre: z.enum(['shooter', 'moba', 'battle', 'sports', 'racing', 'fighting', 'open', 'strategy', 'coop', 'other']),
+  }),
+  z.object({ action: z.literal('removeGame'), slug: z.string().regex(/^[a-z0-9-]{1,80}$/) }),
   z.object({ action: z.literal('setGames'), slugs: z.array(z.string().regex(/^[a-z0-9-]{1,60}$/)).max(300) }),
 ]);
 export type ManageAction = z.infer<typeof ManageAction>;
 
 /** What STAFF may do; OWNER may do everything. */
-export const STAFF_ACTIONS = new Set<ManageAction['action']>(['walkIn', 'freeNow', 'maintenance', 'markBooking']);
+export const STAFF_ACTIONS = new Set<ManageAction['action']>(['walkIn', 'freeNow', 'extend', 'maintenance', 'markBooking']);
 
 /** Only the site owner (super admin) may do these, in any arena. */
 export const SUPER_ACTIONS = new Set<ManageAction['action']>(['setPublished', 'setMember', 'removeMember']);

@@ -175,7 +175,10 @@ function NewArenaDialog({ locale, m, onClose }: { locale: Locale; m: ManageText;
             dir="ltr"
           />
           <div>
-            <CitySelect locale={locale} label={m.city} value={f.city} onChange={(city) => setF((x) => ({ ...x, city }))} />
+            <span className="text-sm font-semibold text-ink">{m.city}</span>
+            <div className="mt-1.5">
+              <CitySelect locale={locale} label={m.city} value={f.city} onChange={(city) => setF((x) => ({ ...x, city }))} />
+            </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label={m.areaAr} value={f.areaAr} onChange={set('areaAr')} maxLength={80} dir="rtl" />

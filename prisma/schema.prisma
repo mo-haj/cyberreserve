@@ -139,6 +139,7 @@ model Cafe {
   devices        Device[]
   sections       CafeSection[]
   games          CafeGame[]
+  customGames    Game[]         @relation("CustomGames")
   stationGroups  StationGroup[]
   members        ArenaMember[]
   images         ArenaImage[]
@@ -327,8 +328,13 @@ model Game {
   genreAr   String
   /// Optional cover image the arena owner has the right to use; a generated tile is shown otherwise.
   imageUrl  String?
+  /// Set for a game an arena owner added themselves: only that arena sees it.
+  ownerCafeId String?
+  ownerCafe   Cafe?    @relation("CustomGames", fields: [ownerCafeId], references: [id], onDelete: Cascade)
   createdAt DateTime   @default(now()) @db.Timestamptz(3)
   cafes     CafeGame[]
+
+  @@index([ownerCafeId])
 }
 
 /// Which games an arena offers.

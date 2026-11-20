@@ -4,7 +4,9 @@
 import { ArenaRole, BookingStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { now } from '@/lib/time';
-import { canDo, parseLatLng, type ManageAction, type NewArena } from '@/lib/manage/rules';
+import { randomUUID } from 'node:crypto';
+import { canDo, parseLatLng, slugify, type ManageAction, type NewArena } from '@/lib/manage/rules';
+import { GENRES } from '@/prisma/games-data';
 import { normalizePhone } from '@/lib/telegram/logic';
 import { arenaBookings, markByArena } from '@/lib/booking/service';
 import { GROUP_SELECT } from '@/lib/cafes';
@@ -180,10 +182,13 @@ export async function getManageData(cafeId: string) {
       },
     },
   });
-  const catalogue = await prisma.game.findMany({
-    select: { slug: true, name: true, genreEn: true, genreAr: true, imageUrl: true },
-    orderBy: { name: 'asc' },
-  });
+  const catalogue = (
+    await prisma.game.findMany({
+      where: { OR: [{ ownerCafeId: null }, { ownerCafeId: cafe.id }] },
+      select: { id: true, slug: true, name: true, genreEn: true, genreAr: true, imageUrl: true, ownerCafeId: true },
+      orderBy: { name: 'asc' },
+    })
+  ).map(({ ownerCafeId, ...g }) => ({ ...g, custom: ownerCafeId !== null }));
   const stations: ManageStation[] = cafe.devices.map((d) => ({
     pcNumber: d.pcNumber,
     type: d.type,
@@ -251,6 +256,7 @@ export type ActionError =
   | 'too_late'
   | 'bad_group'
   | 'empty_post'
+  | 'next_booking'
   | 'bad_phone'
   | 'no_such_player';
 
@@ -320,6 +326,24 @@ export async function runAction(
       });
       if (ended.count === 0) return fail('not_busy', 409);
       await audit({ pcNumber: input.pcNumber });
+      return { ok: true };
+    }
+    case 'extend': {
+      const d = await station(cafeId, input.pcNumber);
+      if (!d) return fail('not_found', 404);
+      const now = await prisma.booking.findFirst({
+        where: { deviceId: d.id, status: { in: HOLDING }, startTime: { lte: at }, endTime: { gt: at } },
+        select: { id: true, endTime: true },
+      });
+      if (!now) return fail('not_busy', 409);
+      try {
+        await prisma.booking.update({ where: { id: now.id }, data: { endTime: new Date(now.endTime.getTime() + input.minutes * 60_000) } });
+      } catch (err) {
+        // The next booking on this station starts before the new end.
+        if (String(err instanceof Error ? err.message : err).match(/no_overlap_booking|23P01/)) return fail('next_booking', 409);
+        throw err;
+      }
+      await audit({ pcNumber: input.pcNumber, minutes: input.minutes });
       return { ok: true };
     }
     case 'markBooking': {
@@ -542,8 +566,47 @@ export async function runAction(
       await audit({ member: input.userId, removed: true });
       return { ok: true };
     }
+    case 'addGame': {
+      const name = input.name.replace(/\s+/g, ' ').trim();
+      // Already in the shared list or added before: just tick it.
+      const same = await prisma.game.findFirst({
+        where: { name: { equals: name, mode: 'insensitive' }, OR: [{ ownerCafeId: null }, { ownerCafeId: cafeId }] },
+        select: { id: true },
+      });
+      const genre = GENRES[input.genre];
+      const id =
+        same?.id ??
+        (
+          await prisma.game.create({
+            data: {
+              slug: `own-${randomUUID().slice(0, 8)}-${slugify(name) || 'game'}`.slice(0, 80),
+              name,
+              genreEn: genre.en,
+              genreAr: genre.ar,
+              ownerCafeId: cafeId,
+            },
+            select: { id: true },
+          })
+        ).id;
+      await prisma.cafeGame.upsert({ where: { cafeId_gameId: { cafeId, gameId: id } }, create: { cafeId, gameId: id }, update: {} });
+      await audit({ game: name, existing: !!same });
+      return { ok: true };
+    }
+    case 'removeGame': {
+      const game = await prisma.game.findFirst({ where: { slug: input.slug, ownerCafeId: cafeId }, select: { id: true } });
+      if (!game) return fail('not_found', 404);
+      await prisma.$transaction([
+        prisma.arenaImage.deleteMany({ where: { cafeId, kind: `game:${game.id}` } }),
+        prisma.game.delete({ where: { id: game.id } }),
+      ]);
+      await audit({ game: input.slug, removed: true });
+      return { ok: true };
+    }
     case 'setGames': {
-      const games = await prisma.game.findMany({ where: { slug: { in: input.slugs } }, select: { id: true } });
+      const games = await prisma.game.findMany({
+        where: { slug: { in: input.slugs }, OR: [{ ownerCafeId: null }, { ownerCafeId: cafeId }] },
+        select: { id: true },
+      });
       await prisma.$transaction([
         prisma.cafeGame.deleteMany({ where: { cafeId } }),
         prisma.cafeGame.createMany({ data: games.map((g) => ({ cafeId, gameId: g.id })) }),

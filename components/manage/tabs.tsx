@@ -3,6 +3,7 @@
 // Dashboard tabs: Players (who booked here), Posts (photo + text on the arena
 // page) and Access (super admin: publish/hide, owners and staff).
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { shrinkImage } from '@/lib/manage/shrink';
 import { Field, IconButton, TextArea } from '@/components/manage/fields';
 import type { Action } from '@/components/manage/ManagePanel';
 import { cityName } from '@/lib/cities';
@@ -233,8 +234,8 @@ function PostEditor({
         const form = new FormData();
         form.set('kind', 'post');
         form.set('itemId', post.id);
-        form.set('file', file);
-        res = await fetch(`/api/manage/${slug}/image`, { method: 'POST', body: form });
+        form.set('file', await shrinkImage(file, 'post'), 'photo');
+        res = await fetch(`/api/manage/${slug}/image`, { method: 'POST', body: form, signal: AbortSignal.timeout(45_000) });
       } else {
         res = await fetch(`/api/manage/${slug}/image?kind=post&itemId=${post.id}`, { method: 'DELETE' });
       }
@@ -256,8 +257,8 @@ function PostEditor({
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label={m.titleAr} value={f.titleAr} onChange={set('titleAr')} maxLength={80} dir="rtl" />
             <Field label={m.titleEn} value={f.titleEn} onChange={set('titleEn')} maxLength={80} dir="ltr" />
-            <TextArea label={m.bodyAr} value={f.bodyAr} onChange={set('bodyAr')} maxLength={1000} dir="rtl" rows={5} />
-            <TextArea label={m.bodyEn} value={f.bodyEn} onChange={set('bodyEn')} maxLength={1000} dir="ltr" rows={5} />
+            <TextArea label={m.bodyAr} value={f.bodyAr} onChange={set('bodyAr')} maxLength={5000} dir="rtl" rows={10} />
+            <TextArea label={m.bodyEn} value={f.bodyEn} onChange={set('bodyEn')} maxLength={5000} dir="ltr" rows={10} />
           </div>
           <div>
             <p className="text-sm font-semibold text-ink">{m.postPhoto}</p>
