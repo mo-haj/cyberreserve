@@ -121,9 +121,9 @@ export default function ArenaBrowser({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(340px,420px)_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 gap-6 lg:h-[clamp(32rem,calc(100dvh-15rem),46rem)] lg:grid-cols-[minmax(340px,420px)_minmax(0,1fr)]">
       {/* Arena list */}
-      <section className="hud flex min-w-0 flex-col p-4 sm:p-5" aria-labelledby="arena-list-title">
+      <section className="hud flex min-h-0 min-w-0 flex-col p-4 sm:p-5" aria-labelledby="arena-list-title">
         <div className="flex items-center justify-between gap-3">
           <h2 id="arena-list-title" className="font-display text-2xl font-bold text-ink">
             {t.home.listTitle}
@@ -177,7 +177,11 @@ export default function ArenaBrowser({
         </label>
 
         {/* Re-keyed per city, so the rows "deal in" again when the city changes. */}
-        <ul key={city ?? 'all'} className="mt-4 flex flex-col gap-2">
+        {/* Desktop: the list scrolls inside its box, the page keeps one height. */}
+        <ul
+          key={city ?? 'all'}
+          className="cr-scroll mt-4 flex flex-col gap-2 lg:-me-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pe-2 lg:[mask-image:linear-gradient(to_bottom,#000_calc(100%-2.5rem),transparent)] lg:pb-8"
+        >
           {shown.map((a, i) => {
             const active = a.slug === current?.slug;
             return (
@@ -270,7 +274,7 @@ export default function ArenaBrowser({
 
       {/* Selected arena, live (desktop) */}
       {current && (
-        <section className="hud hidden min-w-0 flex-col p-5 lg:flex" aria-live="polite">
+        <section className="hud hidden min-h-0 min-w-0 flex-col overflow-y-auto p-5 cr-scroll lg:flex" aria-live="polite">
           <div className="relative -mx-5 -mt-5 mb-5 h-44 overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={current.coverImage} alt="" className="h-full w-full object-cover object-top" />
