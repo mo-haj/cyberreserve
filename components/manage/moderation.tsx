@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Action } from '@/components/manage/ManagePanel';
 import type { ManageText } from '@/lib/i18n-manage';
+import { formatDamascusTime, toDamascusParts } from '@/lib/time';
 
 const UNITS = [
   { key: 'hours', minutes: 60 },
@@ -27,6 +28,7 @@ function BanFields({ m, value, onChange }: { m: ManageText; value: { forever: bo
     <div className="space-y-4">
       <fieldset>
         <legend className="text-sm font-semibold text-ink">{m.banFor}</legend>
+        <p className="text-xs text-muted">{m.banForHint}</p>
         <div className="mt-2 flex flex-wrap items-stretch gap-2">
           <input
             type="number"
@@ -65,6 +67,7 @@ function BanFields({ m, value, onChange }: { m: ManageText; value: { forever: bo
             {m.banForever}
           </button>
         </div>
+        <BanPreview m={m} value={value} />
       </fieldset>
       <label className="block">
         <span className="text-sm font-semibold text-ink">{m.banReason}</span>
@@ -79,6 +82,24 @@ function BanFields({ m, value, onChange }: { m: ManageText; value: { forever: bo
         />
       </label>
     </div>
+  );
+}
+
+/** "Cannot book with you until Mon 23/11, 20:50", worked out live. */
+function BanPreview({ m, value }: { m: ManageText; value: { forever: boolean; amount: string; unit: Unit } }) {
+  const n = Number(value.amount);
+  if (value.forever) {
+    return <p className="mt-2 bg-busy/10 px-3 py-2 text-sm text-busy shadow-[inset_0_0_0_1px_rgba(255,45,85,0.4)]">{m.banPreviewForever}</p>;
+  }
+  if (!Number.isInteger(n) || n < 1) return <p className="mt-2 text-sm text-busy">{m.banPreviewBad}</p>;
+  const unit = UNITS.find((u) => u.key === value.unit)!;
+  const end = new Date(Date.now() + n * unit.minutes * 60_000);
+  const p = toDamascusParts(end);
+  const when = `${m.weekdays[p.weekday]} ${p.day}/${p.month} · ${formatDamascusTime(end)}`;
+  return (
+    <p className="mt-2 bg-violet/10 px-3 py-2 text-sm text-ink shadow-[inset_0_0_0_1px_rgba(157,92,255,0.4)]">
+      {m.banPreview(`${n} ${m.banUnits[value.unit]}`)} <bdi className="font-semibold text-cyan">{when}</bdi>
+    </p>
   );
 }
 

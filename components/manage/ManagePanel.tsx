@@ -788,6 +788,24 @@ const WEEKDAYS = {
   en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
 };
 
+const CONFIRM_LOOK = {
+  arrived: 'bg-free/15 text-free shadow-[inset_0_0_0_1px_rgba(43,255,136,0.6)]',
+  confirmed: 'bg-free/15 text-free shadow-[inset_0_0_0_1px_rgba(43,255,136,0.6)]',
+  waiting: 'bg-amber-400/15 text-amber-200 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.6)]',
+  later: 'bg-violet/15 text-violet-soft shadow-[inset_0_0_0_1px_rgba(157,92,255,0.5)]',
+  close: 'bg-cyan/10 text-cyan shadow-[inset_0_0_0_1px_rgba(41,224,255,0.45)]',
+} as const;
+
+/** Where the "still coming?" question stands, at a glance. */
+function ConfirmChip({ m, state, at }: { m: ManageText; state: keyof typeof CONFIRM_LOOK; at: string | null }) {
+  const time = at ? formatDamascusTime(new Date(at)) : '';
+  return (
+    <span className={`ms-auto inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold ${CONFIRM_LOOK[state]}`} title={m.confirmHelp}>
+      {m.confirmState[state](time)}
+    </span>
+  );
+}
+
 function Bookings({ locale, m, data, action, canBan = false }: { locale: Locale; m: ManageText; data: ManageData; action: Action; canBan?: boolean }) {
   const [cancelling, setCancelling] = useState<ManageData['bookings'][number] | null>(null);
   if (data.bookings.length === 0) {
@@ -889,7 +907,7 @@ function Bookings({ locale, m, data, action, canBan = false }: { locale: Locale;
                 >
                   {m.cancelBooking}
                 </button>
-                {b.stillComing && !b.arrived && <span className="ms-auto text-xs text-free">{m.stillComing}</span>}
+                <ConfirmChip m={m} state={b.confirm} at={b.confirmAt} />
               </div>
             </li>
           );

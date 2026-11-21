@@ -560,6 +560,23 @@ export async function markByArena(
   return { ok: true, player };
 }
 
+/**
+ * Where the "still coming?" question stands, for the arena:
+ * arrived · confirmed (player said yes) · waiting (asked, no answer yet, until
+ * `at`) · later (will be asked at `at`) · close (booked shortly before: no question).
+ */
+function confirmState(b: { actualStart: Date | null; createdAt: Date; startTime: Date; reminderSentAt: Date | null; stillComingAt: Date | null }): {
+  confirm: 'arrived' | 'confirmed' | 'waiting' | 'later' | 'close';
+  confirmAt: string | null;
+} {
+  if (b.actualStart) return { confirm: 'arrived', confirmAt: null };
+  const ask = reminderAt(b.createdAt, b.startTime);
+  if (!ask) return { confirm: 'close', confirmAt: null };
+  if (b.stillComingAt) return { confirm: 'confirmed', confirmAt: b.stillComingAt.toISOString() };
+  if (b.reminderSentAt) return { confirm: 'waiting', confirmAt: new Date(b.startTime.getTime() - BOOKING.answerByBeforeMin * MIN).toISOString() };
+  return { confirm: 'later', confirmAt: ask.toISOString() };
+}
+
 /** Upcoming online bookings of an arena, for the owner panel. */
 export async function arenaBookings(cafeId: string) {
   const at = clockNow();
@@ -587,6 +604,7 @@ export async function arenaBookings(cafeId: string) {
       badge: b.user?.badges[0]?.badge ?? '',
       arrived: !!b.actualStart,
       stillComing: !!b.stillComingAt,
+      ...confirmState(b),
       started: b.startTime <= at,
     })),
   );

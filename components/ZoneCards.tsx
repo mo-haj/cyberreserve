@@ -73,8 +73,12 @@ function ZoneCard({ locale, g, pcs }: { locale: Locale; g: GroupView; pcs: PcVie
       className={`${wide ? 'sm:col-span-2 md:grid md:grid-cols-[5fr_6fr]' : ''} overflow-hidden [clip-path:polygon(12px_0,100%_0,100%_calc(100%-12px),calc(100%-12px)_100%,0_100%,0_12px)] ${frame}`}
     >
       {wide && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={g.imageUrl!} alt="" loading="lazy" className="aspect-[16/9] h-full w-full object-cover md:aspect-auto md:min-h-64" />
+        // A fixed frame: 16:9 on phones; beside the text on wider screens, as
+        // tall as the text (never the photo's own height).
+        <div className="relative aspect-[16/9] w-full overflow-hidden md:aspect-auto md:h-full md:min-h-64">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={g.imageUrl!} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
+        </div>
       )}
       <div className="flex flex-col gap-4 p-4 sm:p-5">
         <header className="flex items-start justify-between gap-3">
