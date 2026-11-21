@@ -285,6 +285,8 @@ const ar = {
   addGame: 'إضافة',
   yourGames: 'ألعاب أضفتها',
   gamePhoto: 'صورة',
+  logoTipBefore: 'ما عندك صورة للعبة؟ ابحث عن شعارها في ',
+  logoTipAfter: ' ونزّله بأي صيغة موجودة (WebP أو PNG أو SVG)، ثم اضغط مربع «صورة» بجانب اللعبة.',
   deleteGame: 'حذف اللعبة',
   search: 'ابحث عن لعبة',
   // errors
@@ -587,6 +589,8 @@ const en: typeof ar = {
   addGame: 'Add',
   yourGames: 'Games you added',
   gamePhoto: 'Photo',
+  logoTipBefore: 'No picture for the game? Find its logo on ',
+  logoTipAfter: ', download it in any format it has (WebP, PNG or SVG), then press the "Photo" square next to the game.',
   deleteGame: 'Delete game',
   search: 'Search a game',
   errors: {

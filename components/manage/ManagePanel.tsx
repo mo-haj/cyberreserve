@@ -623,6 +623,13 @@ function GamesForm({
         {own.length > 0 && (
           <div>
             <p className="mb-2 text-sm font-semibold text-ink">{m.yourGames}</p>
+            <p className="mb-3 bg-cyan/5 px-3 py-2 text-xs leading-relaxed text-muted shadow-[inset_0_0_0_1px_rgba(41,224,255,0.3)]">
+              💡 {m.logoTipBefore}
+              <a href="https://dashboardicons.com/icons" target="_blank" rel="noopener noreferrer" dir="ltr" className="font-semibold text-cyan underline-offset-2 hover:underline">
+                dashboardicons.com
+              </a>
+              {m.logoTipAfter}
+            </p>
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {own.map((g) => (
                 <OwnGame key={g.slug} locale={locale} slug={slug} m={m} game={g} setData={setData} action={action} />
@@ -753,7 +760,7 @@ function OwnGame({
         )}
         <input
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg"
           className="sr-only"
           disabled={busy}
           onChange={(e) => {
@@ -974,7 +981,7 @@ function Images({
       {busy === kind ? m.uploading : label}
       <input
         type="file"
-        accept="image/png,image/jpeg,image/webp"
+        accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg"
         className="sr-only"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -1465,7 +1472,7 @@ function ZoneEditor({
                   {photoBusy ? m.uploading : zone.imageUrl ? m.change : m.upload}
                   <input
                     type="file"
-                    accept="image/png,image/jpeg,image/webp"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg"
                     className="sr-only"
                     onChange={(e) => {
                       const file = e.target.files?.[0] ?? null;

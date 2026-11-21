@@ -365,7 +365,7 @@ function PostEditor({
                   {photoBusy ? m.uploading : post.imageUrl ? m.change : m.upload}
                   <input
                     type="file"
-                    accept="image/png,image/jpeg,image/webp"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg"
                     className="sr-only"
                     onChange={(e) => {
                       const file = e.target.files?.[0] ?? null;
