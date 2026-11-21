@@ -86,7 +86,7 @@ export default function AdminHome({
                 <div className="flex items-center gap-3 p-4">
                   {a.logoImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={a.logoImage} alt="" className="h-11 w-11 shrink-0 object-cover" />
+                    <img src={a.logoImage} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" />
                   ) : (
                     <span className="grid h-11 w-11 shrink-0 place-items-center bg-violet/25 font-display text-lg font-bold text-violet-soft">
                       {pick(locale, a.nameEn, a.nameAr).slice(0, 1)}
@@ -150,7 +150,7 @@ function NewArenaDialog({ locale, m, onClose }: { locale: Locale; m: ManageText;
   }
 
   return (
-    <dialog ref={ref} onClose={onClose} className="cr-modal m-auto w-[calc(100%-1.5rem)] max-w-xl overflow-hidden bg-transparent p-0 text-ink">
+    <dialog ref={ref} onClose={onClose} className="cr-modal m-auto w-[calc(100%-1.5rem)] max-w-xl overflow-clip bg-transparent p-0 text-ink">
       <form onSubmit={submit} className="panel-in hud flex max-h-[calc(100dvh-4rem)] flex-col" style={{ background: '#0B0F24' }}>
         <div className="p-6 pb-3">
           <h2 className="font-display text-2xl font-bold">{m.newArenaTitle}</h2>

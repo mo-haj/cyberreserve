@@ -5,6 +5,7 @@ import { ArenaRole, BookingStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { now } from '@/lib/time';
 import { randomUUID } from 'node:crypto';
+import type { OfferKind } from '@/lib/booking/rules';
 import { canDo, parseLatLng, slugify, type ManageAction, type NewArena } from '@/lib/manage/rules';
 import { GENRES } from '@/prisma/games-data';
 import { normalizePhone } from '@/lib/telegram/logic';
@@ -113,7 +114,7 @@ export interface ManageStation {
   nightRate: string;
   isMaintenance: boolean;
   /** Current booking or walk-in, if any. */
-  busy: { until: string; walkIn: boolean } | null;
+  busy: { until: string; walkIn: boolean; player: string; badge: string } | null;
 }
 
 export interface ManagePlayer {
@@ -125,6 +126,8 @@ export interface ManagePlayer {
   bookings: number;
   noShows: number;
   last: string;
+  /** Given by the arena: '' | 'loyal' | 'vip'. */
+  badge: string;
 }
 
 /** Players who booked online at this arena, most recent first (up to 300). */
@@ -144,15 +147,19 @@ async function arenaPlayers(cafeId: string): Promise<ManagePlayer[]> {
     per.set(r.userId!, p);
   }
   const ids = [...per.entries()].sort((a, b) => +b[1].last - +a[1].last).slice(0, 300).map(([id]) => id);
-  const users = await prisma.user.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, name: true, fullName: true, nickname: true, phone: true, homeCity: true },
-  });
+  const [users, badges] = await Promise.all([
+    prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, fullName: true, nickname: true, phone: true, homeCity: true },
+    }),
+    prisma.playerBadge.findMany({ where: { cafeId }, select: { userId: true, badge: true } }),
+  ]);
+  const badgeOf = new Map(badges.map((b) => [b.userId, b.badge]));
   return ids.flatMap((id) => {
     const u = users.find((x) => x.id === id);
     const p = per.get(id)!;
     return u
-      ? [{ id, fullName: u.fullName ?? u.name, nickname: u.nickname ?? '', phone: u.phone ?? '', city: u.homeCity ?? '', bookings: p.bookings, noShows: p.noShows, last: p.last.toISOString() }]
+      ? [{ id, fullName: u.fullName ?? u.name, nickname: u.nickname ?? '', phone: u.phone ?? '', city: u.homeCity ?? '', bookings: p.bookings, noShows: p.noShows, last: p.last.toISOString(), badge: badgeOf.get(id) ?? '' }]
       : [];
   });
 }
@@ -168,7 +175,7 @@ export async function getManageData(cafeId: string) {
         include: {
           bookings: {
             where: { status: { in: HOLDING }, startTime: { lte: at }, endTime: { gt: at } },
-            select: { endTime: true, isWalkIn: true },
+            select: { endTime: true, isWalkIn: true, userId: true, user: { select: { name: true, nickname: true } } },
             take: 1,
           },
         },
@@ -176,6 +183,7 @@ export async function getManageData(cafeId: string) {
       games: { select: { game: { select: { slug: true } } } },
       stationGroups: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: GROUP_SELECT },
       sections: { orderBy: { position: 'asc' }, select: { id: true, titleAr: true, titleEn: true, bodyAr: true, bodyEn: true, imageUrl: true } },
+      offers: { orderBy: [{ hours: 'asc' }, { createdAt: 'asc' }], select: { id: true, hours: true, kind: true, price: true, stationType: true, noteAr: true, noteEn: true } },
       members: {
         orderBy: { createdAt: 'asc' },
         select: { role: true, user: { select: { id: true, name: true, nickname: true, fullName: true, phone: true } } },
@@ -189,6 +197,7 @@ export async function getManageData(cafeId: string) {
       orderBy: { name: 'asc' },
     })
   ).map(({ ownerCafeId, ...g }) => ({ ...g, custom: ownerCafeId !== null }));
+  const badgeOf = new Map((await prisma.playerBadge.findMany({ where: { cafeId }, select: { userId: true, badge: true } })).map((b) => [b.userId, b.badge]));
   const stations: ManageStation[] = cafe.devices.map((d) => ({
     pcNumber: d.pcNumber,
     type: d.type,
@@ -198,7 +207,14 @@ export async function getManageData(cafeId: string) {
     hourlyRate: d.hourlyRate ? d.hourlyRate.toFixed(0) : '',
     nightRate: d.nightRate ? d.nightRate.toFixed(0) : '',
     isMaintenance: d.isMaintenance,
-    busy: d.bookings[0] ? { until: d.bookings[0].endTime.toISOString(), walkIn: d.bookings[0].isWalkIn } : null,
+    busy: d.bookings[0]
+      ? {
+          until: d.bookings[0].endTime.toISOString(),
+          walkIn: d.bookings[0].isWalkIn,
+          player: d.bookings[0].user ? (d.bookings[0].user.nickname ?? d.bookings[0].user.name) : '',
+          badge: (d.bookings[0].userId && badgeOf.get(d.bookings[0].userId)) || '',
+        }
+      : null,
   }));
   return {
     at: at.toISOString(),
@@ -228,6 +244,7 @@ export async function getManageData(cafeId: string) {
     games: { selected: cafe.games.map((g) => g.game.slug), catalogue },
     isPublished: cafe.isPublished,
     posts: cafe.sections,
+    offers: cafe.offers.map((o) => ({ ...o, kind: o.kind as OfferKind, price: o.price.toFixed(0) })),
     players: await arenaPlayers(cafeId),
     members: cafe.members.map((m) => ({
       userId: m.user.id,
@@ -253,6 +270,8 @@ export type ActionError =
   | 'has_bookings'
   | 'bad_location'
   | 'too_many'
+  | 'too_many_offers'
+  | 'bad_percent'
   | 'too_late'
   | 'bad_group'
   | 'empty_post'
@@ -516,6 +535,40 @@ export async function runAction(
         await prisma.cafeSection.create({ data: { cafeId, position: (last._max.position ?? 0) + 1, imageUrl: '', ...text } });
       }
       await audit({ post: id ?? 'new' });
+      return { ok: true };
+    }
+    case 'saveOffer': {
+      const { action: _a, id, price, ...rest } = input;
+      void _a;
+      if (rest.kind === 'percent' && (Number(price) < 1 || Number(price) > 90 || !Number.isInteger(Number(price)))) return fail('bad_percent');
+      const data = { ...rest, price: new Prisma.Decimal(price) };
+      if (id) {
+        const done = await prisma.arenaOffer.updateMany({ where: { id, cafeId }, data });
+        if (done.count === 0) return fail('not_found', 404);
+      } else {
+        if ((await prisma.arenaOffer.count({ where: { cafeId } })) >= 20) return fail('too_many_offers', 409);
+        await prisma.arenaOffer.create({ data: { cafeId, ...data } });
+      }
+      await audit({ offer: id ?? 'new', hours: rest.hours, price });
+      return { ok: true };
+    }
+    case 'removeOffer': {
+      const done = await prisma.arenaOffer.deleteMany({ where: { id: input.id, cafeId } });
+      if (done.count === 0) return fail('not_found', 404);
+      await audit({ offer: input.id, removed: true });
+      return { ok: true };
+    }
+    case 'setBadge': {
+      const played = await prisma.booking.count({ where: { userId: input.userId, device: { cafeId } } });
+      if (!played) return fail('not_found', 404);
+      if (!input.badge) await prisma.playerBadge.deleteMany({ where: { cafeId, userId: input.userId } });
+      else
+        await prisma.playerBadge.upsert({
+          where: { cafeId_userId: { cafeId, userId: input.userId } },
+          create: { cafeId, userId: input.userId, badge: input.badge },
+          update: { badge: input.badge },
+        });
+      await audit({ player: input.userId, badge: input.badge || 'none' });
       return { ok: true };
     }
     case 'removePost': {

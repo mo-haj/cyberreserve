@@ -152,7 +152,7 @@ export default function GamesDialog({
         onClick={(e) => {
           if (e.target === dialogRef.current) setOpen(false);
         }}
-        className="cr-modal m-auto max-h-[92vh] w-[calc(100%-1.5rem)] max-w-4xl overflow-hidden bg-transparent p-0 text-ink"
+        className="cr-modal m-auto max-h-[92vh] w-[calc(100%-1.5rem)] max-w-4xl overflow-clip bg-transparent p-0 text-ink"
       >
         {open && (
           <div ref={panelRef} className="panel-in hud flex max-h-[92vh] flex-col p-5 sm:p-7" style={{ background: '#0B0F24' }}>

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BOOKING, bookableDays, checkRequest, isBlocked, overlaps, priceFor, reminderAt, slotsOn } from '../lib/booking/rules';
+import { BOOKING, bookableDays, checkRequest, isBlocked, overlaps, priceFor, priceWithOffers, reminderAt, slotsOn } from '../lib/booking/rules';
 import { fromDamascusParts, formatDamascusDateTime } from '../lib/time';
 
 const at = (d: number, h: number, m = 0) => fromDamascusParts({ year: 2026, month: 11, day: d, hour: h, minute: m });
@@ -53,4 +53,28 @@ test('"still coming?" timing depends on how far ahead the booking was made', () 
   assert.equal(fmt(reminderAt(at(18, 17, 40), start)), '2026-11-18 18:00', 'booked 50 min ahead: 30 min before');
   assert.equal(reminderAt(at(18, 17, 50), start), null, 'booked 40 min ahead: no question');
   assert.equal(BOOKING.answerByBeforeMin, 15);
+});
+
+test('offers: cheapest of normal price and one offer plus the rest', () => {
+  const start = at(18, 12);
+  const offers = [{ hours: 5, price: 600 }, { hours: 10, price: 1000 }];
+  assert.equal(priceWithOffers(start, 120, 150, 150, offers).price, 300, 'too short for an offer');
+  const five = priceWithOffers(start, 300, 150, 150, offers);
+  assert.equal(five.price, 600);
+  assert.equal(five.normal, 750);
+  assert.equal(five.offer?.hours, 5);
+  assert.equal(priceWithOffers(start, 360, 150, 150, offers).price, 750, '5 h offer + 1 h normal');
+  assert.equal(priceWithOffers(start, 600, 150, 150, offers).price, 1000, '10 h offer');
+  assert.equal(priceWithOffers(start, 300, 100, 100, [{ hours: 5, price: 900 }]).offer, null, 'a dearer "offer" is ignored');
+});
+
+test('offers: an hourly rate from N hours, and a percent off', () => {
+  const start = at(12, 12);
+  const rate = [{ hours: 5, price: 120, kind: 'rate' as const }];
+  assert.equal(priceWithOffers(start, 240, 150, 150, rate).price, 600, 'under 5 h: normal price');
+  assert.equal(priceWithOffers(start, 300, 150, 150, rate).price, 600, '5 h at 120');
+  assert.equal(priceWithOffers(start, 420, 150, 150, rate).price, 840, '7 h at 120');
+  const pct = [{ hours: 5, price: 10, kind: 'percent' as const }];
+  assert.equal(priceWithOffers(start, 300, 150, 150, pct).price, 675, '10 % off 750');
+  assert.equal(priceWithOffers(start, 300, 150, 150, [{ hours: 5, price: 100, kind: 'percent' as const }]).offer, null, '100 % is not allowed');
 });

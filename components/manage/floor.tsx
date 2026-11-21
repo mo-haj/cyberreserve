@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { StationIcon } from '@/components/StationIcons';
 import { Field } from '@/components/manage/fields';
+import PlayerBadge from '@/components/PlayerBadge';
 import type { Action } from '@/components/manage/ManagePanel';
 import { groupName } from '@/lib/groups';
 import { dictionary, type Locale } from '@/lib/i18n';
@@ -80,6 +81,9 @@ export function StationTile({
         onClick={onOpen}
         className={`group relative flex w-full flex-col items-center gap-1.5 px-2 pb-3 pt-4 text-center transition-shadow duration-200 [clip-path:polygon(10px_0,100%_0,100%_calc(100%-10px),calc(100%-10px)_100%,0_100%,0_10px)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan ${look.tile}`}
       >
+        {s.busy?.badge && (
+          <span className={`absolute start-2 top-1.5 h-2 w-2 ${s.busy.badge === 'vip' ? 'bg-amber-300 shadow-[0_0_8px_rgba(251,191,36,0.9)]' : 'bg-violet-soft'}`} title={s.busy.badge.toUpperCase()} aria-hidden="true" />
+        )}
         <span dir="ltr" className={`absolute end-2 top-1.5 font-hud text-xs font-bold ${look.text}`}>
           {String(num).padStart(2, '0')}
         </span>
@@ -101,6 +105,12 @@ export function StationTile({
 }
 
 const STEP = 30;
+// Station-level actions: amber for "out of service", red for delete.
+const OFF_BTN =
+  'py-2.5 text-sm font-semibold text-amber-300 bg-amber-400/10 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.5)] transition-colors duration-150 hover:bg-amber-400/20 hover:text-amber-200 hover:shadow-[inset_0_0_0_1px_rgba(251,191,36,0.9)] disabled:opacity-40';
+const DEL_BTN =
+  'py-2.5 text-sm font-semibold text-busy bg-busy/10 shadow-[inset_0_0_0_1px_rgba(255,45,85,0.5)] transition-colors duration-150 hover:bg-busy/20 hover:shadow-[inset_0_0_0_1px_rgba(255,45,85,0.9)] disabled:opacity-40';
+const DEL_BTN_ON = 'py-2.5 text-sm font-semibold text-white bg-busy shadow-[0_0_18px_-4px_rgba(255,45,85,0.9)] disabled:opacity-40';
 const QUICK = [60, 120, 180, 300];
 
 export function StationPanel({
@@ -164,7 +174,7 @@ export function StationPanel({
   }
 
   return (
-    <dialog ref={ref} onClose={onClose} className="cr-modal m-auto w-[calc(100%-1.5rem)] max-w-md overflow-hidden bg-transparent p-0 text-ink">
+    <dialog ref={ref} onClose={onClose} className="cr-modal m-auto w-[calc(100%-1.5rem)] max-w-md overflow-clip bg-transparent p-0 text-ink">
       <div className="panel-in hud flex max-h-[calc(100dvh-3rem)] flex-col" style={{ background: '#0B0F24' }}>
         {/* Header: the station, its zone and what it is doing now. */}
         <div className="flex items-start gap-4 p-5 pb-4">
@@ -184,7 +194,18 @@ export function StationPanel({
                 </>
               )}
             </p>
-            {state === 'busy' && s.busy && <p className="text-xs text-muted">{s.busy.walkIn ? m.walkIn : m.online}</p>}
+            {state === 'busy' && s.busy && (
+              <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                {s.busy.walkIn ? m.walkIn : m.online}
+                {s.busy.player && (
+                  <>
+                    {' · '}
+                    <bdi className="text-ink">{s.busy.player}</bdi>
+                  </>
+                )}
+                {s.busy.badge && <PlayerBadge kind={s.busy.badge} locale={locale} />}
+              </p>
+            )}
           </div>
           <button type="button" onClick={onClose} aria-label={m.cancel} className="grid h-9 w-9 shrink-0 place-items-center text-muted hover:text-ink">
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -278,15 +299,25 @@ export function StationPanel({
 
           {/* Settings: owners only, folded away so the daily buttons stay simple. */}
           {owner && (
-            <section className="border-t border-line pt-4">
+            <section className="pt-1">
               <button
                 type="button"
                 onClick={() => setShowSettings((x) => !x)}
                 aria-expanded={showSettings}
-                className="flex w-full items-center justify-between text-sm font-semibold text-ink"
+                className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm font-semibold transition-colors duration-150 ${
+                  showSettings
+                    ? 'bg-violet/25 text-ink shadow-[inset_0_0_0_1px_rgba(157,92,255,0.8)]'
+                    : 'bg-violet/10 text-ink/90 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.45)] hover:bg-violet/20 hover:text-ink hover:shadow-[inset_0_0_0_1px_rgba(157,92,255,0.85)]'
+                }`}
               >
-                {m.stationSettings}
-                <span className="text-muted">{showSettings ? '▴' : '▾'}</span>
+                <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-violet-soft" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+                </svg>
+                <span className="flex-1">{m.stationSettings}</span>
+                <svg viewBox="0 0 24 24" className={`h-4 w-4 shrink-0 text-muted transition-transform duration-200 ${showSettings ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </button>
               {showSettings && (
                 <form onSubmit={saveSettings} className="panel-in mt-4 space-y-4" onChange={() => setSaved(false)}>
@@ -326,15 +357,15 @@ export function StationPanel({
                     </button>
                     {saved && <span className="text-sm text-free">{m.saved}</span>}
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+                  <div className="grid grid-cols-2 gap-2 border-t border-line pt-4">
                     {state !== 'off' && (
-                      <button type="button" className="text-sm text-muted hover:text-ink" disabled={working} onClick={() => run('mt', { action: 'maintenance', on: true }, true)}>
+                      <button type="button" className={`${OFF_BTN} col-span-1`} disabled={working} onClick={() => run('mt', { action: 'maintenance', on: true }, true)}>
                         {m.takeOut}
                       </button>
                     )}
                     <button
                       type="button"
-                      className={`text-sm ${confirmDelete ? 'font-semibold text-busy' : 'text-muted hover:text-busy'}`}
+                      className={`${confirmDelete ? DEL_BTN_ON : DEL_BTN} ${state === 'off' ? 'col-span-2' : ''}`}
                       disabled={working}
                       onClick={() => (confirmDelete ? run('rm', { action: 'removeStation' }, true) : setConfirmDelete(true))}
                     >
@@ -347,7 +378,7 @@ export function StationPanel({
           )}
           {/* Staff: out of service is a daily action too. */}
           {!owner && state !== 'off' && (
-            <button type="button" className="text-sm text-muted hover:text-ink" disabled={working} onClick={() => run('mt', { action: 'maintenance', on: true }, true)}>
+            <button type="button" className={`${OFF_BTN} w-full`} disabled={working} onClick={() => run('mt', { action: 'maintenance', on: true }, true)}>
               {m.takeOut}
             </button>
           )}

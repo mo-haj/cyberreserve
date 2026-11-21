@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import type { PcStatus, PcView, StatusCounts } from '@/lib/availability';
 import BookingSheet from '@/components/BookingSheet';
 import { StationIcon } from '@/components/StationIcons';
-import type { GroupView } from '@/lib/groups';
+import { groupName, type GroupView } from '@/lib/groups';
 import { dictionary, type Locale } from '@/lib/i18n';
 import { formatDamascusTime } from '@/lib/time';
 
@@ -114,26 +114,39 @@ export default function LiveFloor({
       ? 'grid-cols-4 sm:grid-cols-5 xl:grid-cols-10'
       : 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6';
   const pc = selected === null ? null : data.pcs.find((p) => p.pcNumber === selected) ?? null;
-  // One group per station type (PCs, PS5, ...), in the order the server sends.
+  // One group per zone (Main hall, VIP...) or, for stations without a zone,
+  // per type (PCs, PS5...), in the order the server sends.
   // The small home preview keeps one grid (icons still show the type).
-  const groups: { type: string; pcs: PcView[] }[] = compact ? [{ type: 'ALL', pcs: data.pcs }] : [];
+  const groups: { key: string; type: string; zone: GroupView | null; pcs: PcView[] }[] = compact
+    ? [{ key: 'ALL', type: 'ALL', zone: null, pcs: data.pcs }]
+    : [];
   for (const p of compact ? [] : data.pcs) {
-    const last = groups[groups.length - 1];
-    if (last && last.type === p.type) last.pcs.push(p);
-    else groups.push({ type: p.type, pcs: [p] });
+    const zone = (p.groupId && zones.find((z) => z.id === p.groupId)) || null;
+    const key = zone ? `z:${zone.id}` : `t:${p.type}`;
+    const g = groups.find((x) => x.key === key);
+    if (g) g.pcs.push(p);
+    else groups.push({ key, type: p.type, zone, pcs: [p] });
   }
+  // Keep a type's zones together, VIP after the normal ones.
+  const typeOrder: string[] = [...new Set(data.pcs.map((p) => p.type as string))];
+  groups.sort((a, b) => typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type) || Number(!!a.zone?.isVip) - Number(!!b.zone?.isVip));
   const order = new Map(data.pcs.map((p, i) => [p.pcNumber, i]));
 
   return (
     <div>
       <div className={`${compact ? 'min-h-[15rem] space-y-3' : 'space-y-5'}`} aria-label={t.station.gridLabel}>
         {groups.map((g) => (
-          <section key={g.type} aria-label={t.station.typeTitle[g.type]}>
+          <section key={g.key} aria-label={g.zone ? groupName(g.zone, locale) || t.station.typeTitle[g.type] : t.station.typeTitle[g.type]}>
             {/* Group titles only when the arena has more than one kind of station. */}
             {groups.length > 1 && (
               <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">
                 <StationIcon type={g.type} className="h-4 w-5 text-violet-soft" />
-                {t.station.typeTitle[g.type]}
+                {g.zone ? groupName(g.zone, locale) || t.station.typeTitle[g.type] : t.station.typeTitle[g.type]}
+                {g.zone?.isVip && (
+                  <span className="bg-amber-400/20 px-1.5 text-[0.65rem] font-bold leading-4 text-amber-200 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.7)]">
+                    VIP
+                  </span>
+                )}
                 <span className="font-hud text-xs font-normal text-free">
                   {g.pcs.filter((p) => p.status === 'free').length}/{g.pcs.length}
                 </span>

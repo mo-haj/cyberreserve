@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import CityRail from '@/components/CityRail';
 import GamesDialog from '@/components/GamesDialog';
+import OffersStrip from '@/components/OffersStrip';
 import LiveFloor, { Legend, type LiveData } from '@/components/LiveFloor';
 import type { CafeSummary } from '@/lib/cafes';
 import { CITIES, CITY_COOKIE, CITY_COOKIE_MAX_AGE, cityName } from '@/lib/cities';
@@ -206,7 +207,7 @@ export default function ArenaBrowser({
                   <img
                     src={a.logoImage ?? a.coverImage}
                     alt=""
-                    className={`h-16 shrink-0 ${a.logoImage ? 'w-16 bg-void/70 object-contain p-1' : 'w-24 object-cover'}`}
+                    className={`h-16 shrink-0 object-cover ${a.logoImage ? 'w-16 rounded-full shadow-[0_0_0_2px_rgba(157,92,255,0.5)]' : 'w-24'}`}
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
@@ -224,8 +225,13 @@ export default function ArenaBrowser({
                     <div className="mt-2">
                       <Occupancy free={a.counts.free} busy={a.counts.busy} total={a.counts.total} />
                     </div>
-                    {a.types.some((x) => x.type !== 'PC') && (
+                    {(a.offers.length > 0 || a.types.some((x) => x.type !== 'PC')) && (
                       <div className="mt-1.5 flex flex-wrap gap-1">
+                        {a.offers.length > 0 && (
+                          <span className="bg-amber-400/20 px-1.5 text-[0.65rem] font-bold leading-4 text-amber-200 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.6)]">
+                            {t.arena.offers}
+                          </span>
+                        )}
                         {a.types
                           .filter((x) => x.type !== 'PC')
                           .map((x) => (
@@ -259,7 +265,6 @@ export default function ArenaBrowser({
             </button>
           </div>
         )}
-        <Legend locale={locale} className="mt-auto pt-3" />
       </section>
 
       {/* Nothing to preview (empty city or no match): keep the layout, show the scanner. */}
@@ -284,7 +289,7 @@ export default function ArenaBrowser({
                 <h2 className="flex items-center gap-3 font-display text-3xl font-bold text-ink neon">
                   {current.logoImage && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={current.logoImage} alt="" className="h-12 w-12 shrink-0 bg-void/80 object-contain p-1 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.5)]" />
+                    <img src={current.logoImage} alt="" className="h-14 w-14 shrink-0 rounded-full bg-void/80 object-cover shadow-[0_0_0_2px_rgba(157,92,255,0.6)]" />
                   )}
                   {pick(locale, current.nameEn, current.nameAr)}
                 </h2>
@@ -302,6 +307,7 @@ export default function ArenaBrowser({
               </p>
             </div>
           </div>
+          <OffersStrip locale={locale} offers={current.offers} compact className="mt-3" />
           <LiveFloor
             key={current.slug}
             slug={current.slug}
@@ -313,6 +319,7 @@ export default function ArenaBrowser({
             loginHref={`/login?next=${encodeURIComponent(`/arenas/${current.slug}`)}`}
           />
           <div className="mt-auto flex flex-wrap items-center justify-end gap-3 pt-5">
+            <Legend locale={locale} className="me-auto" />
             <GamesDialog key={current.slug} locale={locale} arenaName={pick(locale, current.nameEn, current.nameAr)} games={current.games} />
             <Link href={`/arenas/${current.slug}`} className="btn-neon">
               {t.arena.open}

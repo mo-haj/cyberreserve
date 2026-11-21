@@ -10,8 +10,9 @@ import { fieldsFor, groupName, groupSummary, numberRanges, type SpecField } from
 import { googleMapsUrl } from '@/lib/maps';
 import { parseLatLng } from '@/lib/manage/rules';
 import { Field, IconButton, TextArea } from '@/components/manage/fields';
-import { Access, Players, Posts } from '@/components/manage/tabs';
+import { Access, Offers, Players, Posts } from '@/components/manage/tabs';
 import { StationPanel, StationTile } from '@/components/manage/floor';
+import PlayerBadge from '@/components/PlayerBadge';
 import { shrinkImage } from '@/lib/manage/shrink';
 import { GENRES, type GenreKey } from '@/prisma/games-data';
 import { formatDamascusTime, toDamascusParts } from '@/lib/time';
@@ -20,7 +21,7 @@ import { formatDamascusTime, toDamascusParts } from '@/lib/time';
 // details and games. Every change goes through POST /api/manage/<slug>,
 // which answers with the fresh data.
 
-type Tab = 'stations' | 'zones' | 'bookings' | 'players' | 'posts' | 'arena' | 'games' | 'owners';
+type Tab = 'stations' | 'zones' | 'bookings' | 'players' | 'posts' | 'offers' | 'arena' | 'games' | 'owners';
 const TYPES = ['PC', 'PS5', 'PS4', 'XBOX'] as const;
 const POLL_MS = 10_000;
 
@@ -98,6 +99,7 @@ export default function ManagePanel({
             tabs: [
               { key: 'arena' as Tab, label: m.tabs.arena },
               { key: 'zones' as Tab, label: m.tabs.zones },
+              { key: 'offers' as Tab, label: m.tabs.offers },
               { key: 'posts' as Tab, label: m.tabs.posts },
               { key: 'games' as Tab, label: m.tabs.games },
             ],
@@ -164,7 +166,8 @@ export default function ManagePanel({
         </>
       )}
       {tab === 'games' && owner && <GamesForm locale={locale} slug={slug} m={m} data={data} setData={setData} action={action} />}
-      {tab === 'players' && owner && <Players locale={locale} m={m} data={data} />}
+      {tab === 'offers' && owner && <Offers locale={locale} m={m} data={data} action={action} />}
+      {tab === 'players' && owner && <Players locale={locale} m={m} data={data} action={action} />}
       {tab === 'posts' && owner && <Posts locale={locale} slug={slug} m={m} data={data} setData={setData} action={action} />}
       {tab === 'owners' && superAdmin && <Access m={m} data={data} action={action} />}
     </div>
@@ -297,7 +300,7 @@ function AddStations({
   }
 
   return (
-    <dialog ref={ref} onClose={onClose} className="cr-modal m-auto w-[calc(100%-1.5rem)] max-w-xl overflow-hidden bg-transparent p-0 text-ink">
+    <dialog ref={ref} onClose={onClose} className="cr-modal m-auto w-[calc(100%-1.5rem)] max-w-xl overflow-clip bg-transparent p-0 text-ink">
       <form onSubmit={save} className="panel-in hud flex max-h-[calc(100dvh-4rem)] flex-col" style={{ background: '#0B0F24' }}>
         <div className="p-6 pb-3">
           <h2 className="font-display text-2xl font-bold text-ink">{m.addTitle}</h2>
@@ -532,7 +535,7 @@ function GamesForm({
                 onChange={(e) => setNewName(e.target.value)}
                 maxLength={60}
                 dir="auto"
-                placeholder="Cyrus"
+                placeholder="Elden Ring"
                 className="min-w-0 flex-1 bg-transparent py-2.5 text-ink placeholder:text-muted/50 outline-none"
               />
             </span>
@@ -734,6 +737,7 @@ function Bookings({ locale, m, data, action }: { locale: Locale; m: ManageText; 
                 <div className="min-w-0">
                   <p className="font-semibold text-ink">
                     <bdi>{b.player}</bdi>
+                    {b.badge && <PlayerBadge kind={b.badge} locale={locale} className="ms-2 align-middle" />}
                     {b.fullName && (
                       <span className="text-sm font-normal text-muted">
                         {' · '}
@@ -845,7 +849,7 @@ function Images({
   }
 
   const picker = (kind: 'logo' | 'cover', label: string) => (
-    <label className={`btn-ghost cursor-pointer text-sm ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+    <label className={`btn-ghost relative cursor-pointer text-sm ${busy ? 'pointer-events-none opacity-60' : ''}`}>
       {busy === kind ? m.uploading : label}
       <input
         type="file"
@@ -862,13 +866,13 @@ function Images({
 
   const isDefault = data.images.cover.endsWith('/cover-default.svg');
   return (
-    <section className="hud grid gap-6 p-5 sm:grid-cols-[auto_minmax(0,1fr)] sm:p-7">
-      <div className="space-y-3">
+    <section className="hud grid gap-8 p-5 sm:grid-cols-[13rem_minmax(0,1fr)] sm:p-7">
+      <div className="flex flex-col items-center space-y-3 text-center sm:items-start sm:text-start">
         <p className="text-sm font-semibold text-ink">{m.logo}</p>
-        <div className="grid h-28 w-28 place-items-center overflow-hidden bg-void/70 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)]">
+        <div className="grid h-48 w-48 place-items-center overflow-hidden rounded-full bg-void/70 shadow-[0_0_0_2px_rgba(157,92,255,0.55),0_0_28px_-8px_rgba(157,92,255,0.8)]">
           {data.images.logo ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={data.images.logo} alt="" className="h-full w-full object-contain" />
+            <img src={data.images.logo} alt="" className="h-full w-full object-cover" />
           ) : (
             <span className="text-xs text-muted">{m.noLogo}</span>
           )}
@@ -881,11 +885,11 @@ function Images({
             </button>
           )}
         </div>
-        <p className="max-w-[14rem] text-xs text-muted">{m.logoHint}</p>
+        <p className="text-xs text-muted">{m.logoHint}</p>
       </div>
       <div className="min-w-0 space-y-3">
         <p className="text-sm font-semibold text-ink">{m.cover}</p>
-        <div className="aspect-[12/5] w-full max-w-xl overflow-hidden bg-void/70 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)]">
+        <div className="aspect-[12/5] w-full overflow-hidden bg-void/70 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={data.images.cover} alt="" className="h-full w-full object-cover" />
         </div>
@@ -1177,7 +1181,7 @@ function ZoneEditor({
   }
 
   return (
-    <dialog ref={ref} onClose={onClose} className="cr-modal m-auto w-[calc(100%-1.5rem)] max-w-2xl overflow-hidden bg-transparent p-0 text-ink">
+    <dialog ref={ref} onClose={onClose} className="cr-modal m-auto w-[calc(100%-1.5rem)] max-w-2xl overflow-clip bg-transparent p-0 text-ink">
       <form onSubmit={save} className="panel-in hud flex max-h-[calc(100dvh-4rem)] flex-col" style={{ background: '#0B0F24' }}>
         <h2 className="p-6 pb-3 font-display text-2xl font-bold text-ink">{zone ? m.zoneEdit : m.zoneNew}</h2>
         <div className="cr-scroll min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-4">
@@ -1289,7 +1293,7 @@ function ZoneEditor({
                     <img src={zone.imageUrl} alt="" className="h-full w-full object-cover" />
                   )}
                 </div>
-                <label className={`btn-ghost cursor-pointer text-sm ${photoBusy ? 'pointer-events-none opacity-60' : ''}`}>
+                <label className={`btn-ghost relative cursor-pointer text-sm ${photoBusy ? 'pointer-events-none opacity-60' : ''}`}>
                   {photoBusy ? m.uploading : zone.imageUrl ? m.change : m.upload}
                   <input
                     type="file"

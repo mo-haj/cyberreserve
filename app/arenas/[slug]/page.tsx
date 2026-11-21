@@ -1,5 +1,7 @@
 import ArenaMap from '@/components/ArenaMap';
 import GamesDialog from '@/components/GamesDialog';
+import OffersStrip from '@/components/OffersStrip';
+import PlayerBadge from '@/components/PlayerBadge';
 import { cityName } from '@/lib/cities';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -9,7 +11,7 @@ import Reveal from '@/components/Reveal';
 import ZoneCards from '@/components/ZoneCards';
 import { SiteFooter, SiteHeader } from '@/components/SiteChrome';
 import { getCurrentUser } from '@/lib/auth/session';
-import { getCafe } from '@/lib/cafes';
+import { getCafe, playerBadgeAt } from '@/lib/cafes';
 import { dictionary, pick } from '@/lib/i18n';
 import { getLocale } from '@/lib/locale';
 import { now } from '@/lib/time';
@@ -35,6 +37,7 @@ export default async function ArenaPage({ params }: Params) {
   const { slug } = await params;
   if (!SLUG.test(slug)) notFound();
   const [locale, arena, user] = await Promise.all([getLocale(), getCafe(slug), getCurrentUser()]);
+  const myBadge = user && arena ? await playerBadgeAt(user.id, arena.slug) : '';
   if (!arena) notFound();
 
   const t = dictionary(locale);
@@ -68,7 +71,7 @@ export default async function ArenaPage({ params }: Params) {
                     <img
                       src={arena.logoImage}
                       alt=""
-                      className="h-12 w-12 shrink-0 bg-void/80 object-contain p-1 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.5)] sm:h-16 sm:w-16"
+                      className="h-14 w-14 shrink-0 rounded-full bg-void/80 object-cover shadow-[0_0_0_2px_rgba(157,92,255,0.6),0_0_18px_-4px_rgba(157,92,255,0.8)] sm:h-20 sm:w-20"
                     />
                   )}
                   {name}
@@ -78,6 +81,8 @@ export default async function ArenaPage({ params }: Params) {
                 </p>
               </div>
             </section>
+
+            <OffersStrip locale={locale} offers={arena.offers} />
 
             {/* Live stations */}
             <section id="stations" className="hud p-5 sm:p-7" aria-labelledby="stations-title">
@@ -145,6 +150,7 @@ export default async function ArenaPage({ params }: Params) {
               />
             </section>
 
+
             <section className="hud p-6">
               <h2 className="font-display text-xl font-bold text-ink">{t.arena.booking}</h2>
               <p className="mt-2 text-sm text-muted">{t.arena.bookingSoon}</p>
@@ -153,7 +159,15 @@ export default async function ArenaPage({ params }: Params) {
                   {t.profile.incomplete}
                 </Link>
               ) : user ? (
-                <p className="mt-4 text-sm text-free">{t.arena.signedInReady(user.name)}</p>
+                <>
+                  <p className="mt-4 text-sm text-free">{t.arena.signedInReady(user.name)}</p>
+                  {myBadge && (
+                    <p className="mt-3 flex items-center gap-2 text-sm text-ink">
+                      <PlayerBadge kind={myBadge} locale={locale} />
+                      {t.arena.yourBadge}
+                    </p>
+                  )}
+                </>
               ) : (
                 <Link href={loginHref} className="btn-neon mt-5 w-full">
                   {t.arena.signInCta}

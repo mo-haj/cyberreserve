@@ -8,7 +8,7 @@ import { now as clockNow, formatDamascusTime } from '@/lib/time';
 import { tg } from '@/lib/telegram/api';
 import { background } from '@/lib/background';
 import { GROUP_SELECT } from '@/lib/cafes';
-import { BOOKING, checkRequest, isBlocked, priceFor, reminderAt, type BookingCheck } from '@/lib/booking/rules';
+import { BOOKING, checkRequest, isBlocked, priceWithOffers, reminderAt, type BookingCheck, type OfferKind } from '@/lib/booking/rules';
 import { ARENA_TEXT, BOOKING_TEXT, formatWhen, type BookingFacts, type BotLang } from '@/lib/booking/texts';
 
 const HOLDING: BookingStatus[] = [BookingStatus.PENDING, BookingStatus.CONFIRMED];
@@ -100,7 +100,11 @@ export async function createBooking(input: {
 
   const device = await prisma.device.findFirst({
     where: { pcNumber: input.pcNumber, archivedAt: null, cafe: { slug: input.slug, isPublished: true } },
-    include: { cafe: { select: { id: true, hourlyRate: true, nightShiftRate: true } } },
+    include: {
+      cafe: {
+        select: { id: true, hourlyRate: true, nightShiftRate: true, offers: { select: { hours: true, kind: true, price: true, stationType: true } } },
+      },
+    },
   });
   if (!device) return { ok: false, error: 'not_found' };
   if (device.isMaintenance) return { ok: false, error: 'maintenance' };
@@ -112,7 +116,10 @@ export async function createBooking(input: {
 
   const day = Number(device.hourlyRate ?? device.cafe.hourlyRate);
   const night = Number(device.nightRate ?? device.cafe.nightShiftRate);
-  const price = priceFor(start, input.minutes, day, night);
+  const offers = device.cafe.offers
+    .filter((o) => !o.stationType || o.stationType === device.type)
+    .map((o) => ({ hours: o.hours, kind: o.kind as OfferKind, price: Number(o.price) }));
+  const { price } = priceWithOffers(start, input.minutes, day, night, offers);
 
   let id: string;
   try {
@@ -328,7 +335,7 @@ export async function arenaBookings(cafeId: string) {
     take: 100,
     include: {
       device: { select: { pcNumber: true, type: true } },
-      user: { select: { name: true, nickname: true, fullName: true, phone: true, homeCity: true } },
+      user: { select: { name: true, nickname: true, fullName: true, phone: true, homeCity: true, badges: { where: { cafeId }, select: { badge: true } } } },
     },
   });
   return Promise.all(
@@ -342,6 +349,7 @@ export async function arenaBookings(cafeId: string) {
       fullName: b.user?.fullName ?? '',
       phone: b.user?.phone ?? '',
       city: b.user?.homeCity ?? '',
+      badge: b.user?.badges[0]?.badge ?? '',
       arrived: !!b.actualStart,
       stillComing: !!b.stillComingAt,
       started: b.startTime <= at,
@@ -357,7 +365,12 @@ export async function stationSchedule(slug: string, pcNumber: number) {
   const at = clockNow();
   const device = await prisma.device.findFirst({
     where: { pcNumber, archivedAt: null, cafe: { slug, isPublished: true } },
-    select: { id: true, group: { select: GROUP_SELECT } },
+    select: {
+      id: true,
+      type: true,
+      group: { select: GROUP_SELECT },
+      cafe: { select: { offers: { orderBy: { hours: 'asc' }, select: { hours: true, kind: true, price: true, stationType: true, noteAr: true, noteEn: true } } } },
+    },
   });
   if (!device) return null;
   const rows = await prisma.booking.findMany({
@@ -374,6 +387,10 @@ export async function stationSchedule(slug: string, pcNumber: number) {
     taken: rows.map((r) => ({ start: r.startTime.toISOString(), end: r.endTime.toISOString() })),
     /** The station's zone with its hardware, for the pop-up (null when not in a zone). */
     zone: device.group,
+    /** Price packages that apply to this station. */
+    offers: device.cafe.offers
+      .filter((o) => !o.stationType || o.stationType === device.type)
+      .map((o) => ({ hours: o.hours, kind: o.kind as OfferKind, price: Number(o.price), noteAr: o.noteAr, noteEn: o.noteEn })),
   };
 }
 

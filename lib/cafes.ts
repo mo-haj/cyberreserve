@@ -18,6 +18,7 @@ import {
   type StatusCounts,
 } from '@/lib/availability';
 import { groupSummary, type GroupView } from '@/lib/groups';
+import type { OfferKind } from '@/lib/booking/rules';
 import { DEMO_CAFES, demoGroups, demoStations } from '@/prisma/demo-data';
 import { DEMO_ARENA_GAMES, GAMES, GENRES } from '@/prisma/games-data';
 
@@ -50,6 +51,7 @@ export interface CafeSummary {
   games: GameView[];
   /** Stations per type (PC, PS5...), with how many are free. */
   types: { type: StationType; total: number; free: number }[];
+  offers: OfferView[];
 }
 
 export interface CafeSectionView {
@@ -58,6 +60,16 @@ export interface CafeSectionView {
   bodyEn: string;
   bodyAr: string;
   imageUrl: string;
+}
+
+export interface OfferView {
+  hours: number;
+  kind: OfferKind;
+  price: string;
+  /** '' = every station. */
+  stationType: string;
+  noteAr: string;
+  noteEn: string;
 }
 
 export interface CafeDetail extends CafeSummary {
@@ -69,6 +81,7 @@ export interface CafeDetail extends CafeSummary {
   hoursAr: string;
   nightShiftRate: string;
   sections: CafeSectionView[];
+  offers: OfferView[];
   /** Zones with their hardware, in the owner's order. */
   groups: GroupView[];
   pcs: PcView[];
@@ -193,7 +206,7 @@ export async function listCafes(): Promise<CafeSummary[]> {
   const cafes = await prisma.cafe.findMany({
     where: { isPublished: true },
     orderBy: [{ isDemo: 'asc' }, { createdAt: 'asc' }, { slug: 'asc' }],
-    include: { devices: deviceQuery(at), games: gamesQuery },
+    include: { devices: deviceQuery(at), games: gamesQuery, offers: { orderBy: [{ hours: 'asc' }, { createdAt: 'asc' }] } },
   });
   return cafes.map((c) => {
     const pcs = viewsFrom(c.devices, c, at);
@@ -214,8 +227,13 @@ export async function listCafes(): Promise<CafeSummary[]> {
       counts: countStatuses(pcs),
       games: gamesFrom(c.games),
       types: countByType(pcs),
+      offers: c.offers.map(offerView),
     };
   });
+}
+
+function offerView(o: { hours: number; kind: string; price: Prisma.Decimal; stationType: string; noteAr: string; noteEn: string }): OfferView {
+  return { hours: o.hours, kind: o.kind as OfferKind, price: o.price.toFixed(0), stationType: o.stationType, noteAr: o.noteAr, noteEn: o.noteEn };
 }
 
 export async function getCafe(slug: string): Promise<CafeDetail | null> {
@@ -226,6 +244,7 @@ export async function getCafe(slug: string): Promise<CafeDetail | null> {
     include: {
       devices: deviceQuery(at),
       sections: { orderBy: { position: 'asc' } },
+      offers: { orderBy: [{ hours: 'asc' }, { createdAt: 'asc' }] },
       games: gamesQuery,
       stationGroups: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: GROUP_SELECT },
     },
@@ -260,6 +279,7 @@ export async function getCafe(slug: string): Promise<CafeDetail | null> {
       bodyAr: s.bodyAr,
       imageUrl: s.imageUrl,
     })),
+    offers: c.offers.map(offerView),
     groups: c.stationGroups,
     pcs,
     counts: countStatuses(pcs),
@@ -303,6 +323,7 @@ function toSummary(c: CafeDetail): CafeSummary {
     counts: c.counts,
     games: c.games,
     types: c.types,
+    offers: c.offers,
   };
 }
 
@@ -356,6 +377,7 @@ function fixtureCafes(): CafeDetail[] {
       hoursEn: d.hoursEn,
       hoursAr: d.hoursAr,
       sections: d.sections,
+      offers: [],
       groups,
       pcs,
       counts: countStatuses(pcs),
@@ -366,4 +388,11 @@ function fixtureCafes(): CafeDetail[] {
         .sort((a, b) => a.name.localeCompare(b.name, 'en')),
     };
   });
+}
+
+/** The badge ('' | 'loyal' | 'vip') this arena gave this player. */
+export async function playerBadgeAt(userId: string, slug: string): Promise<string> {
+  if (useFixture()) return '';
+  const b = await prisma.playerBadge.findFirst({ where: { userId, cafe: { slug } }, select: { badge: true } });
+  return b?.badge ?? '';
 }

@@ -70,6 +70,53 @@ export function priceFor(start: Date, minutes: number, dayRate: number, nightRat
   return Math.round(total);
 }
 
+/**
+ * An arena offer. All kinds need a booking of at least `hours`:
+ * - package: `hours` for a total of `price`, then the normal price for the rest;
+ * - rate:    from `hours`, every hour costs `price`;
+ * - percent: from `hours`, `price` % off the normal price.
+ */
+export type OfferKind = 'package' | 'rate' | 'percent';
+export const OFFER_KINDS: readonly OfferKind[] = ['package', 'rate', 'percent'];
+
+export interface PriceOffer {
+  hours: number;
+  price: number;
+  kind?: OfferKind;
+}
+
+/** The price of one booking with one offer, or null when it does not apply. */
+export function offerTotal(start: Date, minutes: number, dayRate: number, nightRate: number, o: PriceOffer): number | null {
+  const need = o.hours * 60;
+  if (o.hours < 1 || need > minutes || o.price <= 0) return null;
+  switch (o.kind ?? 'package') {
+    case 'rate':
+      return Math.round((o.price * minutes) / 60);
+    case 'percent':
+      if (o.price >= 100) return null;
+      return Math.round(priceFor(start, minutes, dayRate, nightRate) * (1 - o.price / 100));
+    default:
+      return Math.round(o.price + priceFor(new Date(start.getTime() + need * MIN), minutes - need, dayRate, nightRate));
+  }
+}
+
+/** The cheapest of the normal price and every offer that applies. */
+export function priceWithOffers(
+  start: Date,
+  minutes: number,
+  dayRate: number,
+  nightRate: number,
+  offers: PriceOffer[],
+): { price: number; normal: number; offer: PriceOffer | null } {
+  const normal = priceFor(start, minutes, dayRate, nightRate);
+  let best = { price: normal, normal, offer: null as PriceOffer | null };
+  for (const o of offers) {
+    const total = offerTotal(start, minutes, dayRate, nightRate, o);
+    if (total !== null && total < best.price) best = { price: total, normal, offer: o };
+  }
+  return best;
+}
+
 /** Half-open ranges [start, end) overlap. Same rule as the database constraint. */
 export function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
   return aStart.getTime() < bEnd.getTime() && bStart.getTime() < aEnd.getTime();

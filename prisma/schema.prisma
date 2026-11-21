@@ -69,6 +69,7 @@ model User {
   sessions        Session[]
   loginRequests   LoginRequest[]
   arenas          ArenaMember[]
+  badges          PlayerBadge[]
 }
 
 // One "Sign in with Telegram" attempt. The browser holds a secret token (only
@@ -138,6 +139,8 @@ model Cafe {
   updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
   devices        Device[]
   sections       CafeSection[]
+  offers         ArenaOffer[]
+  playerBadges   PlayerBadge[]
   games          CafeGame[]
   customGames    Game[]         @relation("CustomGames")
   stationGroups  StationGroup[]
@@ -148,6 +151,38 @@ model Cafe {
 }
 
 // Photo + text blocks shown on a cafe's page, alternating left/right.
+/// An offer: a package (5 h for 600), a cheaper hour from N hours, or % off from N hours.
+model ArenaOffer {
+  id          String   @id @default(uuid())
+  cafeId      String
+  hours       Int
+  /// package: total price · rate: price per hour · percent: % off.
+  kind        String   @default("package")
+  price       Decimal  @db.Decimal(12, 2)
+  /// '' = every station, otherwise PC / PS5 / PS4 / XBOX.
+  stationType String   @default("")
+  noteAr      String   @default("")
+  noteEn      String   @default("")
+  position    Int      @default(0)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  cafe        Cafe     @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+
+  @@index([cafeId, position])
+}
+
+/// A badge an arena gives one of its players: "loyal" or "vip".
+model PlayerBadge {
+  cafeId    String
+  userId    String
+  badge     String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  cafe      Cafe     @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([cafeId, userId])
+  @@index([userId])
+}
+
 model CafeSection {
   id       String @id @default(uuid())
   cafeId   String
@@ -321,18 +356,18 @@ model AuditLog {
 
 /// Game catalogue (shared by all arenas). Names are the same in both languages.
 model Game {
-  id        String     @id @default(uuid())
-  slug      String     @unique
-  name      String
-  genreEn   String
-  genreAr   String
+  id          String     @id @default(uuid())
+  slug        String     @unique
+  name        String
+  genreEn     String
+  genreAr     String
   /// Optional cover image the arena owner has the right to use; a generated tile is shown otherwise.
-  imageUrl  String?
+  imageUrl    String?
   /// Set for a game an arena owner added themselves: only that arena sees it.
   ownerCafeId String?
-  ownerCafe   Cafe?    @relation("CustomGames", fields: [ownerCafeId], references: [id], onDelete: Cascade)
-  createdAt DateTime   @default(now()) @db.Timestamptz(3)
-  cafes     CafeGame[]
+  ownerCafe   Cafe?      @relation("CustomGames", fields: [ownerCafeId], references: [id], onDelete: Cascade)
+  createdAt   DateTime   @default(now()) @db.Timestamptz(3)
+  cafes       CafeGame[]
 
   @@index([ownerCafeId])
 }

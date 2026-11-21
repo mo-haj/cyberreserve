@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StationIcon } from '@/components/StationIcons';
 import type { PcView } from '@/lib/availability';
-import { BOOKING, bookableDays, isNight, overlaps, priceFor, reminderAt, slotsOn } from '@/lib/booking/rules';
+import { BOOKING, bookableDays, isNight, overlaps, priceWithOffers, reminderAt, slotsOn, type PriceOffer } from '@/lib/booking/rules';
 import { fieldValue, fieldsFor, groupName, type GroupView, type SpecField } from '@/lib/groups';
 import { dictionary, type Locale } from '@/lib/i18n';
 import { formatDamascusTime, toDamascusParts } from '@/lib/time';
@@ -57,6 +57,7 @@ export default function BookingSheet({
   // The zone may come from the page (arena page) or from the schedule answer (home page).
   const [zone, setZone] = useState<GroupView | null>(group);
   const hw = group ?? zone;
+  const [offers, setOffers] = useState<PriceOffer[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ start: string; end: string; price: string } | null>(null);
@@ -69,10 +70,11 @@ export default function BookingSheet({
     let cancelled = false;
     fetch(`/api/arenas/${slug}/stations/${station.pcNumber}/schedule`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : { taken: [], zone: null }))
-      .then((j: { taken: { start: string; end: string }[]; zone?: GroupView | null }) => {
+      .then((j: { taken: { start: string; end: string }[]; zone?: GroupView | null; offers?: PriceOffer[] }) => {
         if (cancelled) return;
         setTaken(j.taken.map((x) => ({ start: new Date(x.start), end: new Date(x.end) })));
         if (j.zone) setZone(j.zone);
+        if (j.offers) setOffers(j.offers);
       })
       .catch(() => undefined);
     return () => {
@@ -86,7 +88,10 @@ export default function BookingSheet({
   const slots = slotsOn(days[dayIndex], now);
   const day = Number(station.hourlyRate ?? 0);
   const night = Number(station.nightRate ?? station.hourlyRate ?? 0);
-  const price = startDate ? priceFor(startDate, minutes, day, night) : 0;
+  const quote = startDate ? priceWithOffers(startDate, minutes, day, night, offers) : null;
+  const price = quote?.price ?? 0;
+  const offerMinutes = new Set(offers.map((o) => o.hours * 60));
+  const lengths = [...new Set([...QUICK, ...offerMinutes])].filter((m) => m <= BOOKING.maxMinutes).sort((a, b) => a - b);
   const hasNight = startDate
     ? Array.from({ length: Math.ceil(minutes / 30) }, (_, i) => new Date(startDate.getTime() + i * 30 * 60_000)).some(isNight)
     : false;
@@ -298,11 +303,19 @@ export default function BookingSheet({
                   </button>
                 </div>
                 <div className="mt-2 grid grid-cols-6 gap-1.5">
-                  {QUICK.filter((m) => m <= BOOKING.maxMinutes).map((m) => {
+                  {lengths.map((m) => {
                     const off = startDate ? clash(startDate, m) : false;
+                    const deal = offerMinutes.has(m);
                     return (
-                      <button key={m} type="button" disabled={off} onClick={() => setMinutes(m)} className={`${chip(minutes === m, off)} !px-1 !py-1.5 whitespace-nowrap text-xs`}>
+                      <button
+                        key={m}
+                        type="button"
+                        disabled={off}
+                        onClick={() => setMinutes(m)}
+                        className={`${chip(minutes === m, off)} relative !px-1 !py-1.5 whitespace-nowrap text-xs ${deal ? '!text-free' : ''}`}
+                      >
                         {t.book.hours(m)}
+                        {deal && <span className="block text-[0.6rem] leading-3 opacity-80">{t.book.offerChip}</span>}
                       </button>
                     );
                   })}
@@ -324,7 +337,12 @@ export default function BookingSheet({
                       </p>
                     </div>
                     <div className="text-end">
-                      <p className="font-hud text-2xl font-bold text-violet-soft">{price}</p>
+                      {quote?.offer && (
+                        <p className="text-xs text-free">
+                          {t.book.offerApplied} · <s className="text-muted">{quote.normal}</s>
+                        </p>
+                      )}
+                      <p className={`font-hud text-2xl font-bold ${quote?.offer ? 'text-free' : 'text-violet-soft'}`}>{price}</p>
                       <p className="text-xs text-muted">
                         {locale === 'ar' ? 'ل.س' : 'SYP'} · {t.book.payAtArena}
                       </p>

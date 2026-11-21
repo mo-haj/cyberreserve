@@ -117,6 +117,18 @@ export const ManageAction = z.discriminatedUnion('action', [
     bodyEn: ShortText(5000),
   }),
   z.object({ action: z.literal('removePost'), id: Uuid }),
+  z.object({
+    action: z.literal('saveOffer'),
+    id: Uuid.optional(),
+    kind: z.enum(['package', 'rate', 'percent']).default('package'),
+    hours: z.number().int().min(1).max(24),
+    price: Price,
+    stationType: z.union([z.enum(STATION_TYPES), z.literal('')]),
+    noteAr: ShortText(120),
+    noteEn: ShortText(120),
+  }),
+  z.object({ action: z.literal('removeOffer'), id: Uuid }),
+  z.object({ action: z.literal('setBadge'), userId: z.string().min(1).max(64), badge: z.enum(['', 'loyal', 'vip']) }),
   z.object({ action: z.literal('movePost'), id: Uuid, by: z.union([z.literal(-1), z.literal(1)]) }),
   // Super admin only (the site owner).
   z.object({ action: z.literal('setPublished'), on: z.boolean() }),
