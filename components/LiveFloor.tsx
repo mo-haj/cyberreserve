@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { PcStatus, PcView, StatusCounts } from '@/lib/availability';
-import BookingSheet from '@/components/BookingSheet';
+import BookingSheet, { type StationPool } from '@/components/BookingSheet';
 import { StationIcon } from '@/components/StationIcons';
 import { groupName, type GroupView } from '@/lib/groups';
 import { dictionary, type Locale } from '@/lib/i18n';
@@ -67,6 +67,7 @@ export default function LiveFloor({
   const [data, setData] = useState<LiveData | null>(initial);
   const [stale, setStale] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
+  const [pool, setPool] = useState<StationPool | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -131,6 +132,27 @@ export default function LiveFloor({
   const typeOrder: string[] = [...new Set(data.pcs.map((p) => p.type as string))];
   groups.sort((a, b) => typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type) || Number(!!a.zone?.isVip) - Number(!!b.zone?.isVip));
   const order = new Map(data.pcs.map((p, i) => [p.pcNumber, i]));
+  // "Book any station of this group": the player picks a time, the server a station.
+  const anyButton = (g: (typeof groups)[number]) =>
+    compact || g.pcs.every((p) => p.status === 'maintenance') ? null : (
+      <button
+        type="button"
+        onClick={() =>
+          setPool({
+            type: g.type as StationPool['type'],
+            groupId: g.zone?.id ?? null,
+            label: g.zone ? groupName(g.zone, locale) || t.station.typeTitle[g.type] : t.station.typeTitle[g.type],
+            pcs: g.pcs.filter((p) => p.status !== 'maintenance'),
+          })
+        }
+        className="any-btn ms-2 flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold"
+      >
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+          <path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        {t.book.anyButton}
+      </button>
+    );
 
   return (
     <div>
@@ -153,8 +175,10 @@ export default function LiveFloor({
                 {!compact && g.pcs[0]?.hourlyRate && (
                   <span className="ms-auto font-normal text-muted">{t.station.perHour(g.pcs[0].hourlyRate)}</span>
                 )}
+                {anyButton(g)}
               </h3>
             )}
+            {groups.length === 1 && !compact && <div className="mb-2 flex justify-end">{anyButton(g)}</div>}
             <ol className={`grid gap-2.5 sm:gap-3 ${cols}`}>
               {g.pcs.map((p) => {
                 const i = order.get(p.pcNumber) ?? 0;
@@ -186,6 +210,19 @@ export default function LiveFloor({
           </section>
         ))}
       </div>
+
+      {pool && (
+        <BookingSheet
+          key={`pool-${pool.type}-${pool.groupId}`}
+          locale={locale}
+          slug={slug}
+          pool={pool}
+          group={zones.find((g) => g.id === pool.groupId) ?? null}
+          viewer={{ signedIn, profileComplete }}
+          loginHref={loginHref}
+          onClose={() => setPool(null)}
+        />
+      )}
 
       {pc && (
         <BookingSheet

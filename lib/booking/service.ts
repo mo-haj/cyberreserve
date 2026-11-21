@@ -150,6 +150,82 @@ export async function createBooking(input: {
   return { ok: true, booking: { id, start: start.toISOString(), end: end.toISOString(), price: String(price) } };
 }
 
+/**
+ * "Any free station": try the stations of one group (a zone, or one type
+ * without a zone) in number order until one can be booked.
+ */
+export async function bookAny(input: {
+  userId: string;
+  slug: string;
+  type: string;
+  groupId: string | null;
+  start: Date | 'now';
+  minutes: number;
+  lang: BotLang;
+}): Promise<CreateResult & { pcNumber?: number }> {
+  const at = clockNow();
+  const start = input.start === 'now' ? at : input.start;
+  const end = new Date(start.getTime() + input.minutes * MIN);
+  const devices = await prisma.device.findMany({
+    where: {
+      type: input.type as Prisma.DeviceWhereInput['type'],
+      groupId: input.groupId,
+      archivedAt: null,
+      isMaintenance: false,
+      cafe: { slug: input.slug, isPublished: true },
+      // Skip the ones already held during that time.
+      bookings: { none: { status: { in: HOLDING }, startTime: { lt: end }, endTime: { gt: start } } },
+    },
+    orderBy: { pcNumber: 'asc' },
+    select: { pcNumber: true },
+  });
+  if (devices.length === 0) return { ok: false, error: 'taken' };
+  for (const d of devices) {
+    const r = await createBooking({ ...input, pcNumber: d.pcNumber, start: input.start });
+    if (r.ok) return { ...r, pcNumber: d.pcNumber };
+    // Someone else just got it, or it went out of service: try the next one.
+    if (r.error !== 'taken' && r.error !== 'maintenance' && r.error !== 'not_found') return r;
+  }
+  return { ok: false, error: 'taken' };
+}
+
+/** When a group of stations is taken, per station, for the "any station" sheet. */
+export async function poolSchedule(slug: string, type: string, groupId: string | null) {
+  const at = clockNow();
+  const devices = await prisma.device.findMany({
+    where: {
+      type: type as Prisma.DeviceWhereInput['type'],
+      groupId,
+      archivedAt: null,
+      isMaintenance: false,
+      cafe: { slug, isPublished: true },
+    },
+    orderBy: { pcNumber: 'asc' },
+    select: {
+      pcNumber: true,
+      bookings: {
+        where: {
+          status: { in: HOLDING },
+          endTime: { gt: at },
+          startTime: { lt: new Date(at.getTime() + (BOOKING.maxDaysAhead + 1) * 24 * 60 * MIN) },
+        },
+        select: { startTime: true, endTime: true },
+      },
+      cafe: { select: { offers: { orderBy: { hours: 'asc' }, select: { hours: true, kind: true, price: true, stationType: true } } } },
+    },
+  });
+  if (devices.length === 0) return null;
+  return {
+    stations: devices.map((d) => ({
+      pcNumber: d.pcNumber,
+      taken: d.bookings.map((b) => ({ start: b.startTime.toISOString(), end: b.endTime.toISOString() })),
+    })),
+    offers: devices[0].cafe.offers
+      .filter((o) => !o.stationType || o.stationType === type)
+      .map((o) => ({ hours: o.hours, kind: o.kind as OfferKind, price: Number(o.price) })),
+  };
+}
+
 async function notifyCreated(id: string) {
   const x = await facts(id, 'ar');
   if (!x) return;

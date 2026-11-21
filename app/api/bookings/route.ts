@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/session';
 import { CreateBookingInput } from '@/lib/booking/api';
-import { createBooking, listMyBookings } from '@/lib/booking/service';
+import { bookAny, createBooking, listMyBookings } from '@/lib/booking/service';
 import { NO_STORE, sameOrigin } from '@/lib/http';
 import { getLocale } from '@/lib/locale';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
@@ -26,21 +26,18 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'signed_out' }, { status: 401, headers: NO_STORE });
   const parsed = CreateBookingInput.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'invalid' }, { status: 400, headers: NO_STORE });
-  const { slug, pcNumber, start, minutes } = parsed.data;
+  const { slug, pcNumber, pool, start, minutes } = parsed.data;
+  if (!pcNumber && !pool) return NextResponse.json({ error: 'invalid' }, { status: 400, headers: NO_STORE });
   try {
-    const result = await createBooking({
-      userId: user.id,
-      slug,
-      pcNumber,
-      minutes,
-      start: start === 'now' ? 'now' : new Date(start),
-      lang: await getLocale(),
-    });
+    const base = { userId: user.id, slug, minutes, start: start === 'now' ? ('now' as const) : new Date(start), lang: await getLocale() };
+    const result = pcNumber
+      ? { ...(await createBooking({ ...base, pcNumber })), pcNumber }
+      : await bookAny({ ...base, type: pool!.type, groupId: pool!.groupId });
     if (!result.ok) {
       const status = result.error === 'taken' || result.error === 'has_active' ? 409 : result.error === 'not_found' ? 404 : 400;
       return NextResponse.json({ error: result.error }, { status, headers: NO_STORE });
     }
-    return NextResponse.json(result.booking, { status: 201, headers: NO_STORE });
+    return NextResponse.json({ ...result.booking, pcNumber: result.pcNumber }, { status: 201, headers: NO_STORE });
   } catch (err) {
     console.error('[api/bookings] failed:', err instanceof Error ? err.message : err);
     return NextResponse.json({ error: 'generic' }, { status: 503, headers: NO_STORE });

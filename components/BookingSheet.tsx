@@ -26,10 +26,19 @@ export interface Viewer {
 
 type Taken = { start: Date; end: Date }[];
 
+/** "Any free station" of one group: a zone, or one type without a zone. */
+export interface StationPool {
+  type: PcView['type'];
+  groupId: string | null;
+  label: string;
+  pcs: PcView[];
+}
+
 export default function BookingSheet({
   locale,
   slug,
-  station,
+  station: one,
+  pool = null,
   group = null,
   viewer,
   loginHref,
@@ -37,7 +46,10 @@ export default function BookingSheet({
 }: {
   locale: Locale;
   slug: string;
-  station: PcView;
+  /** Book this station... */
+  station?: PcView | null;
+  /** ...or any free one of this group. */
+  pool?: StationPool | null;
   /** The station's zone, for its hardware. */
   group?: GroupView | null;
   viewer: Viewer;
@@ -49,18 +61,21 @@ export default function BookingSheet({
   const [now] = useState(() => new Date());
   const days = useMemo(() => bookableDays(now), [now]);
   const [dayIndex, setDayIndex] = useState(0);
-  const freeNow = station.status === 'free';
+  // For a pool, the first station stands for the group (type, price).
+  const station = (one ?? pool!.pcs[0]) as PcView;
+  const freeNow = pool ? pool.pcs.some((p) => p.status === 'free') : station.status === 'free';
   // "now" = start immediately; otherwise an ISO start time.
   const [start, setStart] = useState<'now' | string | null>(freeNow ? 'now' : null);
   const [minutes, setMinutes] = useState(120);
-  const [taken, setTaken] = useState<Taken>([]);
+  // One list per station (one list when booking a given station).
+  const [taken, setTaken] = useState<Taken[]>([]);
   // The zone may come from the page (arena page) or from the schedule answer (home page).
   const [zone, setZone] = useState<GroupView | null>(group);
   const hw = group ?? zone;
   const [offers, setOffers] = useState<PriceOffer[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ start: string; end: string; price: string } | null>(null);
+  const [done, setDone] = useState<{ start: string; end: string; price: string; pcNumber?: number } | null>(null);
 
   useEffect(() => {
     ref.current?.showModal();
@@ -68,23 +83,37 @@ export default function BookingSheet({
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/arenas/${slug}/stations/${station.pcNumber}/schedule`, { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : { taken: [], zone: null }))
-      .then((j: { taken: { start: string; end: string }[]; zone?: GroupView | null; offers?: PriceOffer[] }) => {
-        if (cancelled) return;
-        setTaken(j.taken.map((x) => ({ start: new Date(x.start), end: new Date(x.end) })));
-        if (j.zone) setZone(j.zone);
-        if (j.offers) setOffers(j.offers);
-      })
+    const toTaken = (list: { start: string; end: string }[]) => list.map((x) => ({ start: new Date(x.start), end: new Date(x.end) }));
+    const url = pool
+      ? `/api/arenas/${slug}/pool?type=${pool.type}&group=${pool.groupId ?? ''}`
+      : `/api/arenas/${slug}/stations/${station.pcNumber}/schedule`;
+    fetch(url, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : {}))
+      .then(
+        (j: {
+          taken?: { start: string; end: string }[];
+          stations?: { pcNumber: number; taken: { start: string; end: string }[] }[];
+          zone?: GroupView | null;
+          offers?: PriceOffer[];
+        }) => {
+          if (cancelled) return;
+          if (j.stations) setTaken(j.stations.map((x) => toTaken(x.taken)));
+          else if (j.taken) setTaken([toTaken(j.taken)]);
+          if (j.zone) setZone(j.zone);
+          if (j.offers) setOffers(j.offers);
+        },
+      )
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [slug, station.pcNumber]);
+  }, [slug, station.pcNumber, pool]);
 
   const startDate = start === 'now' ? now : start ? new Date(start) : null;
   const endDate = startDate ? new Date(startDate.getTime() + minutes * 60_000) : null;
-  const clash = (s: Date, len: number) => taken.some((x) => overlaps(s, new Date(s.getTime() + len * 60_000), x.start, x.end));
+  // A time is out only when every station of the choice is taken then.
+  const clash = (s: Date, len: number) =>
+    taken.length > 0 && taken.every((list) => list.some((x) => overlaps(s, new Date(s.getTime() + len * 60_000), x.start, x.end)));
   const slots = slotsOn(days[dayIndex], now);
   const day = Number(station.hourlyRate ?? 0);
   const night = Number(station.nightRate ?? station.hourlyRate ?? 0);
@@ -114,11 +143,13 @@ export default function BookingSheet({
       const res = await fetch('/api/bookings', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ slug, pcNumber: station.pcNumber, start, minutes }),
+        body: JSON.stringify(
+          pool ? { slug, pool: { type: pool.type, groupId: pool.groupId }, start, minutes } : { slug, pcNumber: station.pcNumber, start, minutes },
+        ),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(t.book.errors[body.error] ?? t.book.errors.generic);
+        setError(pool && body.error === 'taken' ? t.book.noneFree : (t.book.errors[body.error] ?? t.book.errors.generic));
         if (body.error === 'taken') setStart(null);
         return;
       }
@@ -130,7 +161,9 @@ export default function BookingSheet({
     }
   }
 
-  const name = t.station.name(station.type, station.typeIndex);
+  const name = pool ? pool.label : t.station.name(station.type, station.typeIndex);
+  const freeCount = pool ? pool.pcs.filter((p) => p.status === 'free').length : 0;
+  const assigned = done?.pcNumber ? (pool?.pcs.find((p) => p.pcNumber === done.pcNumber) ?? null) : null;
   const chip = (on: boolean, disabled = false) =>
     `city-option px-2.5 py-2 text-sm ${on ? 'city-option-on text-ink' : disabled ? 'text-muted/35 line-through cursor-not-allowed' : 'text-muted hover:text-ink'}`;
 
@@ -147,21 +180,29 @@ export default function BookingSheet({
       <div className="sheet-panel hud flex max-h-[92vh] flex-col" style={{ background: '#0B0F24' }}>
         {/* Header */}
         <div className="flex items-start gap-3 p-5 pb-3">
-          <span className={`grid h-12 w-12 shrink-0 place-items-center ${station.status === 'free' ? 'text-free bg-free/10' : station.status === 'busy' ? 'text-busy bg-busy/10' : 'text-off bg-panel2'}`}>
+          <span className={`grid h-12 w-12 shrink-0 place-items-center ${pool ? 'text-cyan bg-cyan/10' : station.status === 'free' ? 'text-free bg-free/10' : station.status === 'busy' ? 'text-busy bg-busy/10' : 'text-off bg-panel2'}`}>
             <StationIcon type={station.type} className="h-7 w-8" />
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="font-display text-xl font-bold text-ink">
               {name}
-              {station.label && <span className="ms-2 text-sm font-normal text-muted">{station.label}</span>}
+              {!pool && station.label && <span className="ms-2 text-sm font-normal text-muted">{station.label}</span>}
             </h2>
+            {pool ? (
+              <p className="text-sm text-cyan">
+                {t.book.anyTitle} · <span className="text-free">{t.book.freeNowCount(freeCount, pool.pcs.length)}</span>
+                {station.hourlyRate && <span className="text-muted"> · {t.station.perHour(station.hourlyRate)}</span>}
+              </p>
+            ) : (
             <p className={`text-sm ${station.status === 'free' ? 'text-free' : station.status === 'busy' ? 'text-busy' : 'text-muted'}`}>
               {station.status === 'busy' && station.busyUntil
                 ? t.station.busyUntil(formatDamascusTime(new Date(station.busyUntil)))
                 : t.status[station.status]}
               {station.hourlyRate && <span className="text-muted"> · {t.station.perHour(station.hourlyRate)}</span>}
             </p>
-            {!hw && station.specs && (
+            )}
+            {pool && <p className="mt-1 text-xs text-muted">{t.book.anyHint}</p>}
+            {!pool && !hw && station.specs && (
               <p dir="ltr" className="mt-1 text-xs text-muted rtl:text-end">
                 {station.specs}
               </p>
@@ -187,6 +228,11 @@ export default function BookingSheet({
                   {formatDamascusTime(new Date(done.start))}–{formatDamascusTime(new Date(done.end))}
                 </span>
               </p>
+              {assigned && (
+                <p className="mx-auto w-fit bg-cyan/10 px-4 py-2 font-display text-lg font-bold text-cyan shadow-[inset_0_0_0_1px_rgba(41,224,255,0.6)]">
+                  {t.book.yourStation(t.station.name(assigned.type, assigned.typeIndex))}
+                </p>
+              )}
               <p className="text-violet-soft">{t.arena.price(done.price)}</p>
               <p className="text-sm text-muted">{t.book.doneTelegram}</p>
               {(() => {
@@ -202,7 +248,7 @@ export default function BookingSheet({
                 </button>
               </div>
             </div>
-          ) : station.status === 'maintenance' ? (
+          ) : !pool && station.status === 'maintenance' ? (
             <p className="py-4 text-muted">{t.book.maintenance}</p>
           ) : !viewer.signedIn ? (
             <Link href={loginHref} className="btn-neon my-3 w-full">
