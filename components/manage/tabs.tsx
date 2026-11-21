@@ -10,6 +10,7 @@ import { cityName } from '@/lib/cities';
 import { dictionary, pick, type Locale } from '@/lib/i18n';
 import { money, offerLabel } from '@/lib/offers';
 import PlayerBadge, { badgeName } from '@/components/PlayerBadge';
+import { BanDialog } from '@/components/manage/moderation';
 import type { ManageText } from '@/lib/i18n-manage';
 import type { ManageData } from '@/lib/manage/service';
 import { formatDamascusDate } from '@/lib/time';
@@ -19,6 +20,8 @@ import { formatDamascusDate } from '@/lib/time';
 export function Players({ locale, m, data, action }: { locale: Locale; m: ManageText; data: ManageData; action: Action }) {
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<'' | 'vip' | 'loyal' | 'new'>('');
+  const [banning, setBanning] = useState<{ id: string; name: string } | null>(null);
+  const [lifting, setLifting] = useState<string | null>(null);
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase().replace(/\s+/g, '');
     return data.players.filter(
@@ -63,10 +66,10 @@ export function Players({ locale, m, data, action }: { locale: Locale; m: Manage
         <p className="text-muted">{m.playersEmpty}</p>
       ) : (
         <div className="cr-scroll overflow-x-auto">
-          <table className="w-full min-w-[820px] text-sm">
+          <table className="w-full min-w-[980px] text-sm">
             <thead>
               <tr className="border-b border-line text-start text-xs text-muted">
-                {[m.colPlayer, m.colBadge, m.colPhone, m.colCity, m.colBookings, m.colNoShows, m.colLast].map((h) => (
+                {[m.colPlayer, m.colBadge, m.colBan, m.colPhone, m.colCity, m.colBookings, m.colNoShows, m.colLast].map((h) => (
                   <th key={h} className="px-2 py-2 text-start font-normal">
                     {h}
                   </th>
@@ -91,6 +94,41 @@ export function Players({ locale, m, data, action }: { locale: Locale; m: Manage
                     <BadgePicker m={m} locale={locale} value={p.badge} busy={action.busy === `badge-${p.id}`} onPick={(b) => action.run(`badge-${p.id}`, { action: 'setBadge', userId: p.id, badge: b })} />
                   </td>
                   <td className="px-2 py-2.5">
+                    {p.ban ? (
+                      <div className="flex flex-col items-start gap-1">
+                        <span className="bg-busy/15 px-2 py-0.5 text-xs font-semibold text-busy shadow-[inset_0_0_0_1px_rgba(255,45,85,0.5)]" title={p.ban.reason}>
+                          {p.ban.until ? m.bannedUntil(formatDamascusDate(new Date(p.ban.until))) : m.bannedForever}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={!!action.busy}
+                          onClick={async () => {
+                            if (lifting !== p.id) return setLifting(p.id);
+                            setLifting(null);
+                            await action.run(`unban-${p.id}`, { action: 'unbanPlayer', userId: p.id });
+                          }}
+                          className={`text-xs ${lifting === p.id ? 'font-semibold text-free' : 'text-cyan hover:underline'}`}
+                        >
+                          {lifting === p.id ? `${m.unbanButton}?` : m.unbanButton}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-free">{m.canBook}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            action.setError(null);
+                            setBanning({ id: p.id, name: p.nickname || p.fullName });
+                          }}
+                          className="px-2 py-0.5 text-xs text-busy shadow-[inset_0_0_0_1px_rgba(255,45,85,0.4)] transition-colors hover:bg-busy/15 hover:shadow-[inset_0_0_0_1px_rgba(255,45,85,0.85)]"
+                        >
+                          {m.banButton}
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-2 py-2.5">
                     {p.phone && (
                       <a href={`tel:${p.phone}`} dir="ltr" className="font-hud text-cyan hover:underline">
                         {p.phone}
@@ -109,6 +147,7 @@ export function Players({ locale, m, data, action }: { locale: Locale; m: Manage
           </table>
         </div>
       )}
+      {banning && <BanDialog m={m} player={banning} action={action} onClose={() => setBanning(null)} />}
     </section>
   );
 }

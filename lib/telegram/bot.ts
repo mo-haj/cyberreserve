@@ -22,7 +22,7 @@ import { now } from '@/lib/time';
 import { sendText, tg } from '@/lib/telegram/api';
 import { cancelByPlayer, confirmComing, markByArena, upcomingForBot } from '@/lib/booking/service';
 import { supportContactFor } from '@/lib/legal';
-import { ARENA_TEXT, BOOKING_TEXT } from '@/lib/booking/texts';
+import { ARENA_TEXT, BOOKING_TEXT, CANCEL_REASONS } from '@/lib/booking/texts';
 import {
   BOT_COMMANDS,
   BOT_TEXT,
@@ -136,6 +136,15 @@ async function onText(chatId: number, from: FromT, text: string) {
   let t: Text = BOT_TEXT[botLocale(from.language_code)];
   const telegramUserId = String(from.id);
 
+  // An arena member was asked to type why they cancel a booking.
+  if (text.trim() && !text.startsWith('/')) {
+    const pending = await prisma.telegramPending.findUnique({ where: { chatId: String(chatId) } });
+    if (pending && pending.kind === 'cancel_reason' && pending.expiresAt > now()) {
+      await prisma.telegramPending.delete({ where: { chatId: String(chatId) } }).catch(() => undefined);
+      return cancelWithReason(chatId, telegramUserId, pending.bookingId, text.trim().slice(0, 300));
+    }
+  }
+
   const shortId = parseStartPayload(text);
   if (shortId) {
     // Bind the request to the first Telegram account that opens it.
@@ -240,6 +249,7 @@ function langKeyboard(shortId: string) {
 async function onCallback(cb: NonNullable<TelegramUpdate['callback_query']>) {
   const chatId = cb.message?.chat.id ?? cb.from.id;
   const data = cb.data ?? '';
+  if (data.startsWith('bkr:')) return onCancelReason(cb, chatId, data);
   if (data.startsWith('bp:') || data.startsWith('bk:')) return onBookingButton(cb, chatId, data);
   if (data === 'm:bookings' || data === 'm:support') {
     await tg('answerCallbackQuery', { callback_query_id: cb.id });
@@ -286,6 +296,37 @@ const BOOKING_FALLBACK = { ar: BOT_TEXT.ar.invalid, en: BOT_TEXT.en.invalid };
  * The Telegram account pressing must be the booking's player, or a member of
  * the booking's arena (checked in lib/booking/service).
  */
+const REASON_KEY: Record<string, string> = { m: 'k:maintenance', t: 'k:taken', x: 'k:closed' };
+
+/** bkr:<m|t|x|o|n>:<id>: the reason picked after pressing "cancel" on a booking. */
+async function onCancelReason(cb: NonNullable<TelegramUpdate['callback_query']>, chatId: number, data: string) {
+  const m = /^bkr:([mtxon]):([0-9a-f-]{36})$/.exec(data);
+  if (!m) {
+    await tg('answerCallbackQuery', { callback_query_id: cb.id });
+    return;
+  }
+  const [, k, bookingId] = m;
+  await tg('answerCallbackQuery', { callback_query_id: cb.id });
+  if (k === 'o') {
+    await prisma.telegramPending.upsert({
+      where: { chatId: String(chatId) },
+      create: { chatId: String(chatId), kind: 'cancel_reason', bookingId, expiresAt: new Date(now().getTime() + 10 * 60_000) },
+      update: { kind: 'cancel_reason', bookingId, expiresAt: new Date(now().getTime() + 10 * 60_000) },
+    });
+    await sendText(chatId, ARENA_TEXT.typeReason);
+    return;
+  }
+  return cancelWithReason(chatId, String(cb.from.id), bookingId, REASON_KEY[k] ?? '');
+}
+
+async function cancelWithReason(chatId: number, telegramUserId: string, bookingId: string, reason: string) {
+  const user = await prisma.user.findUnique({ where: { telegramChatId: telegramUserId }, select: { id: true } });
+  if (!user) return void (await sendText(chatId, ARENA_TEXT.notAllowed));
+  const result = await markByArena(user.id, bookingId, 'cancel', { reason });
+  if (!result.ok) return void (await sendText(chatId, result.error === 'not_allowed' ? ARENA_TEXT.notAllowed : ARENA_TEXT.tooLate));
+  await sendText(chatId, ARENA_TEXT.doneCancel(result.player));
+}
+
 async function onBookingButton(cb: NonNullable<TelegramUpdate['callback_query']>, chatId: number, data: string) {
   const m = /^(bp|bk):([ycan]):([0-9a-f-]{36})$/.exec(data);
   const user = m ? await prisma.user.findUnique({ where: { telegramChatId: String(cb.from.id) }, select: { id: true } }) : null;
@@ -302,7 +343,32 @@ async function onBookingButton(cb: NonNullable<TelegramUpdate['callback_query']>
     if (ok && act === 'y') await sendText(chatId, t.comingOk);
     return;
   }
-  const mark = act === 'a' ? 'arrived' : act === 'n' ? 'noshow' : act === 'c' ? 'cancel' : null;
+  // Cancel: first ask why (the reason goes to the player with an apology).
+  if (act === 'c') {
+    const b = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { status: true, user: { select: { name: true, nickname: true } }, device: { select: { cafe: { select: { members: { where: { userId: user.id }, select: { userId: true } } } } } } },
+    });
+    if (!b || b.device.cafe.members.length === 0) {
+      await tg('answerCallbackQuery', { callback_query_id: cb.id, text: ARENA_TEXT.notAllowed, show_alert: true });
+      return;
+    }
+    await tg('answerCallbackQuery', { callback_query_id: cb.id });
+    const who = b.user?.nickname ?? b.user?.name ?? '—';
+    await sendText(chatId, ARENA_TEXT.askReason(who), {
+      inline_keyboard: [
+        [{ text: CANCEL_REASONS.maintenance.ar, callback_data: `bkr:m:${bookingId}` }],
+        [{ text: CANCEL_REASONS.taken.ar, callback_data: `bkr:t:${bookingId}` }],
+        [{ text: CANCEL_REASONS.closed.ar, callback_data: `bkr:x:${bookingId}` }],
+        [
+          { text: ARENA_TEXT.reasonOther, callback_data: `bkr:o:${bookingId}` },
+          { text: ARENA_TEXT.reasonNone, callback_data: `bkr:n:${bookingId}` },
+        ],
+      ],
+    });
+    return;
+  }
+  const mark = act === 'a' ? 'arrived' : act === 'n' ? 'noshow' : null;
   if (!mark) return;
   const result = await markByArena(user.id, bookingId, mark);
   if (!result.ok) {

@@ -153,6 +153,10 @@ const ar = {
     anyTitle: 'أي جهاز فاضي',
     anyHint: 'اختر الوقت، ونحن نختار لك جهازاً فاضياً في هذا القسم ونخبرك برقمه.',
     anyButton: 'احجز أي جهاز',
+    bannedHere: (until: string | null, reason: string) =>
+      `أوقفت هذه الصالة حجوزاتك عندها ${until ? `حتى ${until}` : 'بشكل دائم'}.${reason ? ` السبب: ${reason}` : ''} يمكنك الحجز في الصالات الأخرى.`,
+    cancelledHere: (reason: string) =>
+      `ألغت الصالة حجزك بهذا الوقت${reason ? ` (السبب: ${reason})` : ''}، فلا يمكن حجزه من جديد. اختر وقتاً آخر.`,
     noneFree: 'لا يوجد جهاز فاضي في هذا القسم في هذا الوقت. جرّب وقتاً آخر.',
     freeNowCount: (f: number, n: number) => `${f} من ${n} فاضي الآن`,
     yourStation: (name: string) => `جهازك: ${name}`,
@@ -447,6 +451,10 @@ const en: Dict = {
     anyTitle: 'Any free station',
     anyHint: 'Pick a time and we give you a free station in this group, and tell you its number.',
     anyButton: 'Book any station',
+    bannedHere: (until: string | null, reason: string) =>
+      `This arena stopped taking your bookings ${until ? `until ${until}` : 'for good'}.${reason ? ` Reason: ${reason}` : ''} You can still book at other arenas.`,
+    cancelledHere: (reason: string) =>
+      `The arena cancelled your booking at this time${reason ? ` (reason: ${reason})` : ''}, so it can't be booked again. Pick another time.`,
     noneFree: 'No free station in this group at that time. Try another time.',
     freeNowCount: (f: number, n: number) => `${f} of ${n} free now`,
     yourStation: (name: string) => `Your station: ${name}`,

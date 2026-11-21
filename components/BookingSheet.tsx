@@ -149,7 +149,16 @@ export default function BookingSheet({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(pool && body.error === 'taken' ? t.book.noneFree : (t.book.errors[body.error] ?? t.book.errors.generic));
+        const d = body.detail as { reason?: string; until?: string | null } | undefined;
+        setError(
+          pool && body.error === 'taken'
+            ? t.book.noneFree
+            : body.error === 'arena_banned'
+              ? t.book.bannedHere(d?.until ? `${formatDamascusTime(new Date(d.until))} ${new Date(d.until).toLocaleDateString(locale === 'ar' ? 'ar-SY' : 'en-GB', { timeZone: 'Asia/Damascus', day: 'numeric', month: 'numeric' })}` : null, d?.reason ?? '')
+              : body.error === 'arena_cancelled'
+                ? t.book.cancelledHere(d?.reason ?? '')
+                : (t.book.errors[body.error] ?? t.book.errors.generic),
+        );
         if (body.error === 'taken') setStart(null);
         return;
       }

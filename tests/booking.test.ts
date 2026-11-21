@@ -78,3 +78,20 @@ test('offers: an hourly rate from N hours, and a percent off', () => {
   assert.equal(priceWithOffers(start, 300, 150, 150, pct).price, 675, '10 % off 750');
   assert.equal(priceWithOffers(start, 300, 150, 150, [{ hours: 5, price: 100, kind: 'percent' as const }]).offer, null, '100 % is not allowed');
 });
+
+test('cancel reasons and stop texts read well in both languages', async () => {
+  const { reasonText, banUntilText, BOOKING_TEXT } = await import('../lib/booking/texts');
+  assert.equal(reasonText('k:maintenance', 'ar'), 'الجهاز يحتاج صيانة');
+  assert.equal(reasonText('k:closed', 'en'), 'The arena is closed at that time');
+  assert.equal(reasonText('عندنا بطولة', 'en'), 'عندنا بطولة', "the owner's own words stay as written");
+  assert.equal(reasonText(null, 'ar'), '');
+  assert.equal(reasonText('k:nope', 'ar'), '', 'an unknown key shows nothing');
+  assert.equal(banUntilText(null, 'ar'), 'بشكل دائم');
+  assert.match(banUntilText(new Date('2026-11-28T15:00:00Z'), 'en'), /^until Sat 28\/11, 18:00$/);
+  const f = { arena: 'Secret Shop', station: 'PC 3', when: 'Sat 21/11, 21:00–23:00', price: '300' };
+  const msg = BOOKING_TEXT.en.cancelledByArena(f, 'The station needs maintenance', 'https://x.test/arenas/secret');
+  assert.match(msg, /Reason: The station needs maintenance/);
+  assert.match(msg, /Book any station/);
+  assert.match(msg, /https:\/\/x\.test\/arenas\/secret/);
+  assert.doesNotMatch(BOOKING_TEXT.ar.cancelledByArena(f, '', null), /السبب/, 'no reason line when none was given');
+});

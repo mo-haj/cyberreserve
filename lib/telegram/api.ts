@@ -37,6 +37,34 @@ export async function tg(method: string, body: Record<string, unknown>): Promise
   }
 }
 
+/** Like tg(), but returns Telegram's `result` (e.g. the sent message), or null. */
+export async function tgResult<T = unknown>(method: string, body: Record<string, unknown>): Promise<T | null> {
+  const config = telegramConfig();
+  if (!config) return null;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${config.token}/${method}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; result?: T; description?: string } | null;
+    if (!res.ok || !json?.ok) {
+      console.error(`[telegram] ${method} failed: HTTP ${res.status} ${(json?.description ?? '').slice(0, 200)}`);
+      return null;
+    }
+    return json.result ?? null;
+  } catch (err) {
+    console.error(`[telegram] ${method} failed:`, err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/** Text for Telegram's HTML mode. */
+export function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 export function sendText(chatId: number, text: string, replyMarkup?: unknown) {
   return tg('sendMessage', { chat_id: chatId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) });
 }

@@ -5,11 +5,11 @@ import { BookingStatus, Prisma } from '@prisma/client';
 import { cityName } from '@/lib/cities';
 import { prisma } from '@/lib/prisma';
 import { now as clockNow, formatDamascusTime } from '@/lib/time';
-import { tg } from '@/lib/telegram/api';
+import { escapeHtml, tg, tgResult } from '@/lib/telegram/api';
 import { background } from '@/lib/background';
 import { GROUP_SELECT } from '@/lib/cafes';
 import { BOOKING, checkRequest, isBlocked, priceWithOffers, reminderAt, type BookingCheck, type OfferKind } from '@/lib/booking/rules';
-import { ARENA_TEXT, BOOKING_TEXT, formatWhen, type BookingFacts, type BotLang } from '@/lib/booking/texts';
+import { ARENA_TEXT, BOOKING_TEXT, banUntilText, formatWhen, reasonText, type BookingFacts, type BotLang } from '@/lib/booking/texts';
 
 const HOLDING: BookingStatus[] = [BookingStatus.PENDING, BookingStatus.CONFIRMED];
 const MIN = 60_000;
@@ -22,11 +22,15 @@ export type CreateError =
   | 'taken'
   | 'has_active'
   | 'blocked'
-  | 'profile';
+  | 'profile'
+  /** This arena stopped taking this player's bookings (detail: reason, until). */
+  | 'arena_banned'
+  /** The arena cancelled this player's booking at this time (detail: reason). */
+  | 'arena_cancelled';
 
 export type CreateResult =
   | { ok: true; booking: { id: string; start: string; end: string; price: string } }
-  | { ok: false; error: CreateError };
+  | { ok: false; error: CreateError; detail?: { reason: string; until: string | null } };
 
 /** "PS5 2": a station's name as players see it (number within its type). */
 async function stationName(cafeId: string, pcNumber: number, type: string): Promise<string> {
@@ -75,6 +79,137 @@ async function tellArena(cafeId: string, text: string, keyboard?: { text: string
   for (const chat of await arenaChats(cafeId)) await send(chat, text, keyboard);
 }
 
+/** The public site address for links in bot messages, when known. */
+function siteUrl(): string | null {
+  const own = process.env.SITE_URL?.trim().replace(/\/$/, '');
+  if (own) return own;
+  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  return vercel ? `https://${vercel}` : null;
+}
+
+type Keyboard = { text: string; callback_data: string }[][];
+
+/** Send, and remember the message so it can be edited when the booking changes. */
+async function sendTracked(chatId: string, text: string, bookingId: string, kind: 'arena' | 'player' | 'reminder', keyboard?: Keyboard) {
+  const msg = await tgResult<{ message_id: number }>('sendMessage', {
+    chat_id: chatId,
+    text,
+    ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+  });
+  if (msg?.message_id) {
+    await prisma.bookingMessage.create({ data: { bookingId, chatId, messageId: msg.message_id, kind } }).catch(() => undefined);
+  }
+}
+
+export type BookingChange = 'arena_cancel' | 'player_cancel' | 'auto_cancel' | 'arrived' | 'noshow' | 'coming';
+
+/**
+ * Update the Telegram messages already sent about a booking: a clear title on
+ * top, the old text struck through when it no longer holds, buttons removed.
+ */
+async function refreshMessages(bookingId: string, change: BookingChange) {
+  const rows = await prisma.bookingMessage.findMany({ where: { bookingId } });
+  if (rows.length === 0) return;
+  const ar = await facts(bookingId, 'ar');
+  if (!ar) return;
+  const lang = (ar.b.locale === 'en' ? 'en' : 'ar') as BotLang;
+  const mine = lang === 'ar' ? ar : ((await facts(bookingId, lang)) ?? ar);
+  const pt = BOOKING_TEXT[lang];
+  const u = ar.b.user;
+  const struck = change !== 'arrived' && change !== 'coming';
+  for (const r of rows) {
+    let head: string | null = null;
+    let body = '';
+    if (r.kind === 'arena') {
+      body = ARENA_TEXT.newBooking(ar.f, playerLabel(u), u?.phone ?? '—', u?.homeCity ? cityName(u.homeCity, 'ar') : '—');
+      head =
+        change === 'arena_cancel'
+          ? ARENA_TEXT.headCancelled(reasonText(ar.b.cancelReason, 'ar'))
+          : change === 'player_cancel'
+            ? ARENA_TEXT.headPlayerCancelled
+            : change === 'auto_cancel'
+              ? ARENA_TEXT.headAutoCancelled
+              : change === 'arrived'
+                ? ARENA_TEXT.headArrived
+                : change === 'noshow'
+                  ? ARENA_TEXT.headNoShow
+                  : null;
+    } else {
+      const ask = reminderAt(ar.b.createdAt, ar.b.startTime);
+      body =
+        r.kind === 'reminder'
+          ? pt.reminder(mine.f, formatDamascusTime(new Date(ar.b.startTime.getTime() - BOOKING.answerByBeforeMin * MIN)))
+          : pt.confirmed(mine.f, ask ? formatDamascusTime(ask) : null);
+      head =
+        change === 'arena_cancel'
+          ? pt.headCancelledByArena(reasonText(ar.b.cancelReason, lang))
+          : change === 'player_cancel'
+            ? pt.headCancelledByYou
+            : change === 'auto_cancel'
+              ? pt.headCancelledNoAnswer
+              : change === 'noshow'
+                ? pt.headNoShow
+                : change === 'coming' && r.kind === 'reminder'
+                  ? pt.headComing
+                  : null;
+    }
+    if (!head) continue;
+    await tg('editMessageText', {
+      chat_id: r.chatId,
+      message_id: r.messageId,
+      parse_mode: 'HTML',
+      text: `<b>${escapeHtml(head)}</b>\n\n${struck ? `<s>${escapeHtml(body)}</s>` : escapeHtml(body)}`,
+      reply_markup: { inline_keyboard: [] },
+    });
+  }
+}
+
+// ------------------------------------------------------------------ arena bans
+
+/** The arena's stop on this player, if one is in force now. */
+export async function activeBan(cafeId: string, userId: string, at = clockNow()) {
+  const ban = await prisma.arenaBan.findUnique({ where: { cafeId_userId: { cafeId, userId } } });
+  if (!ban || (ban.until && ban.until <= at)) return null;
+  return ban;
+}
+
+/** Stop (or change the stop on) a player at one arena, and tell them why. */
+export async function banPlayer(cafeId: string, byUserId: string, userId: string, until: Date | null, reason: string) {
+  await prisma.arenaBan.upsert({
+    where: { cafeId_userId: { cafeId, userId } },
+    create: { cafeId, userId, until, reason, byUserId },
+    update: { until, reason, byUserId, createdAt: clockNow() },
+  });
+  await prisma.auditLog.create({
+    data: { actorType: 'OWNER', userId: byUserId, action: 'arena.ban', details: { cafeId, player: userId, until: until?.toISOString() ?? 'forever' } },
+  });
+  background('ban notify', async () => {
+    const [u, cafe] = await Promise.all([
+      prisma.user.findUnique({ where: { id: userId }, select: { telegramChatId: true, bookings: { orderBy: { createdAt: 'desc' }, take: 1, select: { locale: true } } } }),
+      prisma.cafe.findUnique({ where: { id: cafeId }, select: { nameAr: true, nameEn: true } }),
+    ]);
+    if (!u?.telegramChatId || !cafe) return;
+    const lang = (u.bookings[0]?.locale === 'en' ? 'en' : 'ar') as BotLang;
+    await send(u.telegramChatId, BOOKING_TEXT[lang].banned(lang === 'ar' ? cafe.nameAr : cafe.nameEn, banUntilText(until, lang), reason));
+  });
+}
+
+export async function unbanPlayer(cafeId: string, byUserId: string, userId: string): Promise<boolean> {
+  const done = await prisma.arenaBan.deleteMany({ where: { cafeId, userId } });
+  if (done.count === 0) return false;
+  await prisma.auditLog.create({ data: { actorType: 'OWNER', userId: byUserId, action: 'arena.unban', details: { cafeId, player: userId } } });
+  background('unban notify', async () => {
+    const [u, cafe] = await Promise.all([
+      prisma.user.findUnique({ where: { id: userId }, select: { telegramChatId: true, bookings: { orderBy: { createdAt: 'desc' }, take: 1, select: { locale: true } } } }),
+      prisma.cafe.findUnique({ where: { id: cafeId }, select: { nameAr: true, nameEn: true } }),
+    ]);
+    if (!u?.telegramChatId || !cafe) return;
+    const lang = (u.bookings[0]?.locale === 'en' ? 'en' : 'ar') as BotLang;
+    await send(u.telegramChatId, BOOKING_TEXT[lang].unbanned(lang === 'ar' ? cafe.nameAr : cafe.nameEn));
+  });
+  return true;
+}
+
 // ------------------------------------------------------------------ create
 
 export async function createBooking(input: {
@@ -108,6 +243,23 @@ export async function createBooking(input: {
   });
   if (!device) return { ok: false, error: 'not_found' };
   if (device.isMaintenance) return { ok: false, error: 'maintenance' };
+
+  const ban = await activeBan(device.cafe.id, input.userId, at);
+  if (ban) return { ok: false, error: 'arena_banned', detail: { reason: ban.reason, until: ban.until?.toISOString() ?? null } };
+  // The arena cancelled this player's booking at this time: do not let them simply book it again.
+  const refused = await prisma.booking.findFirst({
+    where: {
+      userId: input.userId,
+      cancelledBy: 'ARENA',
+      status: BookingStatus.CANCELLED,
+      device: { cafeId: device.cafe.id },
+      startTime: { lt: end },
+      endTime: { gt: start },
+    },
+    select: { cancelReason: true },
+    orderBy: { cancelledAt: 'desc' },
+  });
+  if (refused) return { ok: false, error: 'arena_cancelled', detail: { reason: reasonText(refused.cancelReason, input.lang), until: null } };
 
   const active = await prisma.booking.count({
     where: { userId: input.userId, isWalkIn: false, status: { in: HOLDING }, endTime: { gt: at } },
@@ -233,22 +385,21 @@ async function notifyCreated(id: string) {
   const mine = lang === 'ar' ? x : await facts(id, lang);
   if (x.b.user?.telegramChatId && mine) {
     const ask = reminderAt(x.b.createdAt, x.b.startTime);
-    await send(x.b.user.telegramChatId, BOOKING_TEXT[lang].confirmed(mine.f, ask ? formatDamascusTime(ask) : null), [
+    await sendTracked(x.b.user.telegramChatId, BOOKING_TEXT[lang].confirmed(mine.f, ask ? formatDamascusTime(ask) : null), id, 'player', [
       [{ text: BOOKING_TEXT[lang].cancelButton, callback_data: `bp:c:${id}` }],
     ]);
   }
   const u = x.b.user;
-  await tellArena(
-    x.b.device.cafeId,
-    ARENA_TEXT.newBooking(x.f, playerLabel(u), u?.phone ?? '—', u?.homeCity ? cityName(u.homeCity, 'ar') : '—'),
-    [
+  const text = ARENA_TEXT.newBooking(x.f, playerLabel(u), u?.phone ?? '—', u?.homeCity ? cityName(u.homeCity, 'ar') : '—');
+  for (const chat of await arenaChats(x.b.device.cafeId)) {
+    await sendTracked(chat, text, id, 'arena', [
       [
         { text: ARENA_TEXT.arrived, callback_data: `bk:a:${id}` },
         { text: ARENA_TEXT.noShow, callback_data: `bk:n:${id}` },
         { text: ARENA_TEXT.cancel, callback_data: `bk:c:${id}` },
       ],
-    ],
-  );
+    ]);
+  }
 }
 
 // ------------------------------------------------------------------ player
@@ -312,6 +463,7 @@ export async function cancelByPlayer(userId: string, bookingId: string): Promise
     if (!x) return;
     const lang = (x.b.locale === 'en' ? 'en' : 'ar') as BotLang;
     const mine = lang === 'ar' ? x : await facts(bookingId, lang);
+    await refreshMessages(bookingId, 'player_cancel');
     if (x.b.user?.telegramChatId && mine) await send(x.b.user.telegramChatId, BOOKING_TEXT[lang].cancelledByYou(mine.f));
     await tellArena(x.b.device.cafeId, ARENA_TEXT.playerCancelled(x.f, playerLabel(x.b.user)));
   });
@@ -327,6 +479,7 @@ export async function confirmComing(userId: string, bookingId: string): Promise<
   });
   if (done.count !== 1) return false;
   background('booking coming notify', async () => {
+    await refreshMessages(bookingId, 'coming');
     const x = await facts(bookingId, 'ar');
     if (x) await tellArena(x.b.device.cafeId, ARENA_TEXT.playerComing(x.f, playerLabel(x.b.user)));
   });
@@ -345,6 +498,7 @@ export async function markByArena(
   userId: string,
   bookingId: string,
   mark: ArenaMark,
+  opts: { reason?: string; ban?: { until: Date | null; reason: string } } = {},
 ): Promise<{ ok: true; player: string } | { ok: false; error: 'not_allowed' | 'too_late' }> {
   const at = clockNow();
   const b = await prisma.booking.findUnique({
@@ -361,8 +515,9 @@ export async function markByArena(
   } else if (mark === 'cancel') {
     await prisma.booking.update({
       where: { id: b.id },
-      data: { status: BookingStatus.CANCELLED, cancelledAt: at, cancelledBy: 'ARENA' },
+      data: { status: BookingStatus.CANCELLED, cancelledAt: at, cancelledBy: 'ARENA', cancelReason: opts.reason?.trim() || null },
     });
+    if (opts.ban && b.userId) await banPlayer(b.device.cafeId, userId, b.userId, opts.ban.until, opts.ban.reason);
   } else {
     // No-show counts only once the booking has started, and never after "arrived".
     if (b.startTime > at || b.actualStart) return { ok: false, error: 'too_late' };
@@ -386,15 +541,18 @@ export async function markByArena(
   }
   await prisma.auditLog.create({ data: { actorType: 'OWNER', userId, action: `booking.${mark}`, details: { bookingId } } });
 
+  await refreshMessages(b.id, mark === 'cancel' ? 'arena_cancel' : mark);
   const x = await facts(b.id, 'ar');
   const player = playerLabel(x?.b.user ?? null);
   if (x?.b.user?.telegramChatId && mark !== 'arrived') {
     const lang = (x.b.locale === 'en' ? 'en' : 'ar') as BotLang;
     const mine = lang === 'ar' ? x : await facts(b.id, lang);
     if (mine) {
+      const cafe = await prisma.cafe.findUnique({ where: { id: b.device.cafeId }, select: { slug: true } });
+      const site = siteUrl();
       const text =
         mark === 'cancel'
-          ? BOOKING_TEXT[lang].cancelledByArena(mine.f)
+          ? BOOKING_TEXT[lang].cancelledByArena(mine.f, reasonText(x.b.cancelReason, lang), site && cafe ? `${site}/arenas/${cafe.slug}` : null)
           : BOOKING_TEXT[lang].noShow(mine.f, x.b.user.strikesCount, BOOKING.strikesToBlock);
       await send(x.b.user.telegramChatId, text).catch(() => undefined);
     }
@@ -417,6 +575,7 @@ export async function arenaBookings(cafeId: string) {
   return Promise.all(
     rows.map(async (b) => ({
       id: b.id,
+      userId: b.userId ?? '',
       station: await stationName(cafeId, b.device.pcNumber, b.device.type),
       start: b.startTime.toISOString(),
       end: b.endTime.toISOString(),
@@ -506,7 +665,7 @@ export async function tick(): Promise<void> {
     const x = await facts(b.id, lang);
     if (!x?.b.user?.telegramChatId) continue;
     const answerBy = formatDamascusTime(new Date(b.startTime.getTime() - BOOKING.answerByBeforeMin * MIN));
-    await send(x.b.user.telegramChatId, BOOKING_TEXT[lang].reminder(x.f, answerBy), [
+    await sendTracked(x.b.user.telegramChatId, BOOKING_TEXT[lang].reminder(x.f, answerBy), b.id, 'reminder', [
       [
         { text: BOOKING_TEXT[lang].comingButton, callback_data: `bp:y:${b.id}` },
         { text: BOOKING_TEXT[lang].cancelButton, callback_data: `bp:c:${b.id}` },
@@ -532,6 +691,7 @@ export async function tick(): Promise<void> {
       data: { status: BookingStatus.CANCELLED, cancelledAt: at, cancelledBy: 'SYSTEM' },
     });
     if (done.count !== 1) continue;
+    await refreshMessages(b.id, 'auto_cancel');
     const lang = (b.locale === 'en' ? 'en' : 'ar') as BotLang;
     const x = await facts(b.id, lang);
     if (x?.b.user?.telegramChatId) await send(x.b.user.telegramChatId, BOOKING_TEXT[lang].cancelledNoAnswer(x.f));

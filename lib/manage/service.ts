@@ -9,7 +9,7 @@ import type { OfferKind } from '@/lib/booking/rules';
 import { canDo, parseLatLng, slugify, type ManageAction, type NewArena } from '@/lib/manage/rules';
 import { GENRES } from '@/prisma/games-data';
 import { normalizePhone } from '@/lib/telegram/logic';
-import { arenaBookings, markByArena } from '@/lib/booking/service';
+import { arenaBookings, banPlayer, markByArena, unbanPlayer } from '@/lib/booking/service';
 import { GROUP_SELECT } from '@/lib/cafes';
 import type { GroupView } from '@/lib/groups';
 
@@ -128,6 +128,8 @@ export interface ManagePlayer {
   last: string;
   /** Given by the arena: '' | 'loyal' | 'vip'. */
   badge: string;
+  /** The arena's stop on this player, if in force. */
+  ban: { until: string | null; reason: string } | null;
 }
 
 /** Players who booked online at this arena, most recent first (up to 300). */
@@ -155,11 +157,17 @@ async function arenaPlayers(cafeId: string): Promise<ManagePlayer[]> {
     prisma.playerBadge.findMany({ where: { cafeId }, select: { userId: true, badge: true } }),
   ]);
   const badgeOf = new Map(badges.map((b) => [b.userId, b.badge]));
+  const at = now();
+  const bans = await prisma.arenaBan.findMany({
+    where: { cafeId, OR: [{ until: null }, { until: { gt: at } }] },
+    select: { userId: true, until: true, reason: true },
+  });
+  const banOf = new Map(bans.map((b) => [b.userId, { until: b.until?.toISOString() ?? null, reason: b.reason }]));
   return ids.flatMap((id) => {
     const u = users.find((x) => x.id === id);
     const p = per.get(id)!;
     return u
-      ? [{ id, fullName: u.fullName ?? u.name, nickname: u.nickname ?? '', phone: u.phone ?? '', city: u.homeCity ?? '', bookings: p.bookings, noShows: p.noShows, last: p.last.toISOString(), badge: badgeOf.get(id) ?? '' }]
+      ? [{ id, fullName: u.fullName ?? u.name, nickname: u.nickname ?? '', phone: u.phone ?? '', city: u.homeCity ?? '', bookings: p.bookings, noShows: p.noShows, last: p.last.toISOString(), badge: badgeOf.get(id) ?? '', ban: banOf.get(id) ?? null }]
       : [];
   });
 }
@@ -366,7 +374,12 @@ export async function runAction(
       return { ok: true };
     }
     case 'markBooking': {
-      const r = await markByArena(userId, input.bookingId, input.mark);
+      // Bans are for owners; staff can still cancel with a reason.
+      if (input.ban && member.role !== 'OWNER' && !member.superAdmin) return fail('forbidden', 403);
+      const r = await markByArena(userId, input.bookingId, input.mark, {
+        reason: input.reason,
+        ban: input.ban ? { until: input.ban.minutes === null ? null : new Date(now().getTime() + input.ban.minutes * 60_000), reason: input.ban.reason } : undefined,
+      });
       if (!r.ok) return fail(r.error === 'not_allowed' ? 'forbidden' : 'too_late', r.error === 'not_allowed' ? 403 : 409);
       return { ok: true };
     }
@@ -556,6 +569,16 @@ export async function runAction(
       const done = await prisma.arenaOffer.deleteMany({ where: { id: input.id, cafeId } });
       if (done.count === 0) return fail('not_found', 404);
       await audit({ offer: input.id, removed: true });
+      return { ok: true };
+    }
+    case 'banPlayer': {
+      const played = await prisma.booking.count({ where: { userId: input.userId, device: { cafeId } } });
+      if (!played) return fail('not_found', 404);
+      await banPlayer(cafeId, userId, input.userId, input.minutes === null ? null : new Date(now().getTime() + input.minutes * 60_000), input.reason);
+      return { ok: true };
+    }
+    case 'unbanPlayer': {
+      if (!(await unbanPlayer(cafeId, userId, input.userId))) return fail('not_found', 404);
       return { ok: true };
     }
     case 'setBadge': {

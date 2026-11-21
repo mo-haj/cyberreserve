@@ -34,8 +34,8 @@ export async function POST(request: Request) {
       ? { ...(await createBooking({ ...base, pcNumber })), pcNumber }
       : await bookAny({ ...base, type: pool!.type, groupId: pool!.groupId });
     if (!result.ok) {
-      const status = result.error === 'taken' || result.error === 'has_active' ? 409 : result.error === 'not_found' ? 404 : 400;
-      return NextResponse.json({ error: result.error }, { status, headers: NO_STORE });
+      const status = result.error === 'taken' || result.error === 'has_active' || result.error === 'arena_banned' || result.error === 'arena_cancelled' ? 409 : result.error === 'not_found' ? 404 : 400;
+      return NextResponse.json({ error: result.error, ...('detail' in result && result.detail ? { detail: result.detail } : {}) }, { status, headers: NO_STORE });
     }
     return NextResponse.json({ ...result.booking, pcNumber: result.pcNumber }, { status: 201, headers: NO_STORE });
   } catch (err) {

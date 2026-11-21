@@ -58,7 +58,19 @@ export const ManageAction = z.discriminatedUnion('action', [
     action: z.literal('markBooking'),
     bookingId: z.string().regex(/^[0-9a-f-]{36}$/),
     mark: z.enum(['arrived', 'noshow', 'cancel']),
+    /** Cancel only: "k:<key>" or the owner's own words, sent to the player. */
+    reason: z.string().trim().max(300).optional(),
+    /** Cancel only: also stop this player booking here. */
+    ban: z.object({ minutes: z.number().int().min(60).max(5 * 365 * 24 * 60).nullable(), reason: z.string().trim().min(3).max(300) }).optional(),
   }),
+  z.object({
+    action: z.literal('banPlayer'),
+    userId: z.string().min(1).max(64),
+    /** null = for good. */
+    minutes: z.number().int().min(60).max(5 * 365 * 24 * 60).nullable(),
+    reason: z.string().trim().min(3).max(300),
+  }),
+  z.object({ action: z.literal('unbanPlayer'), userId: z.string().min(1).max(64) }),
   // Owners only: stations.
   z.object({ action: z.literal('addStations'), count: z.number().int().min(1).max(30), ...StationFields }),
   z.object({ action: z.literal('editStation'), pcNumber: PcNumber, ...StationFields }),

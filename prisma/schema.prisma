@@ -70,6 +70,7 @@ model User {
   loginRequests   LoginRequest[]
   arenas          ArenaMember[]
   badges          PlayerBadge[]
+  arenaBans       ArenaBan[]     @relation("ArenaBans")
 }
 
 // One "Sign in with Telegram" attempt. The browser holds a secret token (only
@@ -141,6 +142,7 @@ model Cafe {
   sections       CafeSection[]
   offers         ArenaOffer[]
   playerBadges   PlayerBadge[]
+  bans           ArenaBan[]
   games          CafeGame[]
   customGames    Game[]         @relation("CustomGames")
   stationGroups  StationGroup[]
@@ -181,6 +183,45 @@ model PlayerBadge {
 
   @@id([cafeId, userId])
   @@index([userId])
+}
+
+/// A player an arena does not accept bookings from, until a time or for good.
+model ArenaBan {
+  cafeId    String
+  userId    String
+  /// null = for good.
+  until     DateTime? @db.Timestamptz(3)
+  reason    String
+  byUserId  String?
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  cafe      Cafe      @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  user      User      @relation("ArenaBans", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([cafeId, userId])
+  @@index([userId])
+}
+
+/// A Telegram message the bot sent about a booking, so it can be edited later
+/// (cancelled, arrived...).
+model BookingMessage {
+  id        String   @id @default(uuid())
+  bookingId String
+  chatId    String
+  messageId Int
+  /// "arena" (owner/staff) or "player"; "reminder" for the still-coming question.
+  kind      String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+/// The bot waits for a typed answer from this chat (e.g. a cancel reason).
+model TelegramPending {
+  chatId    String   @id
+  kind      String
+  bookingId String
+  expiresAt DateTime @db.Timestamptz(3)
 }
 
 model CafeSection {
@@ -275,28 +316,31 @@ model Device {
 }
 
 model Booking {
-  id             String        @id @default(uuid())
+  id             String           @id @default(uuid())
   userId         String?
-  isWalkIn       Boolean       @default(false)
+  isWalkIn       Boolean          @default(false)
   deviceId       String
-  startTime      DateTime      @db.Timestamptz(3)
-  endTime        DateTime      @db.Timestamptz(3)
-  actualStart    DateTime?     @db.Timestamptz(3)
-  actualEnd      DateTime?     @db.Timestamptz(3)
-  totalPrice     Decimal       @db.Decimal(12, 2)
-  status         BookingStatus @default(PENDING)
+  startTime      DateTime         @db.Timestamptz(3)
+  endTime        DateTime         @db.Timestamptz(3)
+  actualStart    DateTime?        @db.Timestamptz(3)
+  actualEnd      DateTime?        @db.Timestamptz(3)
+  totalPrice     Decimal          @db.Decimal(12, 2)
+  status         BookingStatus    @default(PENDING)
   snackNotes     String?
-  confirmedAt    DateTime?     @db.Timestamptz(3)
-  cancelledAt    DateTime?     @db.Timestamptz(3)
+  confirmedAt    DateTime?        @db.Timestamptz(3)
+  cancelledAt    DateTime?        @db.Timestamptz(3)
   /// Who cancelled: PLAYER, ARENA or SYSTEM (no answer to "still coming?").
   cancelledBy    String?
+  /// Why the arena cancelled: "k:<key>" for a ready-made reason, else the owner's own words.
+  cancelReason   String?
+  messages       BookingMessage[]
   /// "Still coming?" sent / answered (online bookings made well ahead).
-  reminderSentAt DateTime?     @db.Timestamptz(3)
-  stillComingAt  DateTime?     @db.Timestamptz(3)
+  reminderSentAt DateTime?        @db.Timestamptz(3)
+  stillComingAt  DateTime?        @db.Timestamptz(3)
   /// Language of the bot messages about this booking (the site language when booked).
-  locale         String        @default("ar")
-  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime      @updatedAt @db.Timestamptz(3)
+  locale         String           @default("ar")
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(3)
 
   user   User?          @relation(fields: [userId], references: [id])
   device Device         @relation(fields: [deviceId], references: [id])
