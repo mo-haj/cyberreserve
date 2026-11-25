@@ -53,6 +53,8 @@ export const ENGAGE_TEXT = {
     rateDone: 'شكرًا، تم حفظ تقييمك 🙏',
     rateFail: 'لا يمكن تقييم هذه الزيارة.',
     openArena: 'فتح صفحة الصالة',
+    walkInForYou: (arena: string, station: string, until: string) =>
+      `🎮 ${arena} بدأت لك جلسة على الجهاز ${station} حتى الساعة ${until}.\n\nإذا لم تكن أنت في الصالة، أخبر الصالة.`,
     newOffer: (arena: string, offer: string) => `🏷 عرض جديد في ${arena}:\n${offer}`,
     joinedTournament: (arena: string, title: string, when: string, fee: string) =>
       `✅ تم تسجيلك في «${title}»\n🏟 ${arena}\n🗓 ${when}\n\n` +
@@ -86,6 +88,8 @@ export const ENGAGE_TEXT = {
     rateDone: 'Thanks, your rating is saved 🙏',
     rateFail: 'This visit cannot be rated.',
     openArena: 'Open arena page',
+    walkInForYou: (arena: string, station: string, until: string) =>
+      `🎮 ${arena} started a session for you on station ${station} until ${until}.\n\nIf this was not you, tell the arena.`,
     newOffer: (arena: string, offer: string) => `🏷 New offer at ${arena}:\n${offer}`,
     joinedTournament: (arena: string, title: string, when: string, fee: string) =>
       `✅ You're signed up for “${title}”\n🏟 ${arena}\n🗓 ${when}\n\n` +

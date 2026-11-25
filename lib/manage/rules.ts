@@ -49,7 +49,14 @@ const StationFields = {
 
 export const ManageAction = z.discriminatedUnion('action', [
   // Staff and owners: the live floor.
-  z.object({ action: z.literal('walkIn'), pcNumber: PcNumber, minutes: z.number().int().min(15).max(12 * 60) }),
+  z.object({
+    action: z.literal('walkIn'),
+    pcNumber: PcNumber,
+    minutes: z.number().int().min(15).max(12 * 60),
+    // A player with an account (picked in the panel), or a guest's name, or neither.
+    playerId: z.string().uuid().optional(),
+    guestName: z.string().trim().max(40).optional(),
+  }),
   z.object({ action: z.literal('freeNow'), pcNumber: PcNumber }),
   // Staff and owners: start / end their shift (who did what, in which shift).
   z.object({ action: z.literal('shift'), on: z.boolean() }),

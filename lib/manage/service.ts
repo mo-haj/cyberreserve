@@ -3,13 +3,14 @@
 // the member's role and written to the audit log.
 import { ArenaRole, BookingStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { now } from '@/lib/time';
+import { formatDamascusTime, now } from '@/lib/time';
 import { randomUUID } from 'node:crypto';
 import { BOOKING, type OfferKind } from '@/lib/booking/rules';
 import { canDo, parseLatLng, slugify, type ManageAction, type NewArena } from '@/lib/manage/rules';
 import { GENRES } from '@/prisma/games-data';
 import { normalizePhone } from '@/lib/telegram/logic';
-import { arenaBookings, banPlayer, markByArena, unbanPlayer } from '@/lib/booking/service';
+import { activeBan, arenaBookings, banPlayer, markByArena, unbanPlayer } from '@/lib/booking/service';
+import { tg } from '@/lib/telegram/api';
 import { GROUP_SELECT } from '@/lib/cafes';
 import { endShift, logArena, openShift, startShift } from '@/lib/activity';
 import { ownerTournaments, setReviewHidden, tellFollowers } from '@/lib/engage';
@@ -142,6 +143,54 @@ export interface ManagePlayer {
 }
 
 /** Players who booked online at this arena, most recent first (up to 300). */
+export type PlayerPick = { id: string; name: string; fullName: string; phoneEnd: string; badge: string };
+
+/**
+ * Players the staff can pick for a walk-in. A name search only reaches players
+ * this arena already knows (booked here before, or follow it); anyone else is
+ * found by their full phone number only, so the staff cannot browse the site's
+ * players.
+ */
+export async function findPlayers(cafeId: string, q: string): Promise<PlayerPick[]> {
+  const text = q.trim().slice(0, 40);
+  const phone = normalizePhone(text);
+  const select = { id: true, name: true, fullName: true, nickname: true, phone: true } as const;
+  const known: Prisma.UserWhereInput = {
+    OR: [{ bookings: { some: { device: { cafeId } } } }, { follows: { some: { cafeId } } }],
+  };
+  const users = phone
+    ? await prisma.user.findMany({ where: { phone }, select, take: 1 })
+    : await prisma.user.findMany({
+        where: {
+          AND: [
+            known,
+            { isBanned: false },
+            text
+              ? {
+                  OR: [
+                    { nickname: { contains: text, mode: 'insensitive' } },
+                    { fullName: { contains: text, mode: 'insensitive' } },
+                    { name: { contains: text, mode: 'insensitive' } },
+                  ],
+                }
+              : {},
+          ],
+        },
+        select,
+        orderBy: { updatedAt: 'desc' },
+        take: 8,
+      });
+  const badges = await prisma.playerBadge.findMany({ where: { cafeId, userId: { in: users.map((u) => u.id) } }, select: { userId: true, badge: true } });
+  const badgeOf = new Map(badges.map((b) => [b.userId, b.badge]));
+  return users.map((u) => ({
+    id: u.id,
+    name: u.nickname ?? u.name,
+    fullName: u.fullName ?? '',
+    phoneEnd: u.phone ? u.phone.slice(-3) : '',
+    badge: badgeOf.get(u.id) ?? '',
+  }));
+}
+
 async function arenaPlayers(cafeId: string): Promise<ManagePlayer[]> {
   const rows = await prisma.booking.groupBy({
     by: ['userId', 'status'],
@@ -198,7 +247,7 @@ export async function getManageData(cafeId: string, viewer: { role: 'OWNER' | 'S
         include: {
           bookings: {
             where: { status: { in: HOLDING }, startTime: { lte: at }, endTime: { gt: at } },
-            select: { endTime: true, isWalkIn: true, userId: true, user: { select: { name: true, nickname: true } } },
+            select: { endTime: true, isWalkIn: true, userId: true, guestName: true, user: { select: { name: true, nickname: true } } },
             take: 1,
           },
         },
@@ -234,7 +283,7 @@ export async function getManageData(cafeId: string, viewer: { role: 'OWNER' | 'S
       ? {
           until: d.bookings[0].endTime.toISOString(),
           walkIn: d.bookings[0].isWalkIn,
-          player: d.bookings[0].user ? (d.bookings[0].user.nickname ?? d.bookings[0].user.name) : '',
+          player: d.bookings[0].user ? (d.bookings[0].user.nickname ?? d.bookings[0].user.name) : (d.bookings[0].guestName ?? ''),
           badge: (d.bookings[0].userId && badgeOf.get(d.bookings[0].userId)) || '',
         }
       : null,
@@ -296,6 +345,7 @@ export type ActionResult = { ok: true } | { ok: false; error: ActionError; statu
 export type ActionError =
   | 'forbidden'
   | 'bad_confirm'
+  | 'player_banned'
   | 'not_found'
   | 'busy'
   | 'not_busy'
@@ -365,13 +415,24 @@ export async function runAction(
     case 'walkIn': {
       const d = await station(cafeId, input.pcNumber);
       if (!d) return fail('not_found', 404);
+      let player: { id: string; telegramChatId: string | null } | null = null;
+      if (input.playerId) {
+        player = await prisma.user.findUnique({ where: { id: input.playerId }, select: { id: true, telegramChatId: true } });
+        if (!player) return fail('no_such_player', 404);
+        if (await activeBan(cafeId, player.id, at)) return fail('player_banned');
+      }
+      const guestName = !player && input.guestName ? input.guestName : null;
+      const end = new Date(at.getTime() + input.minutes * 60_000);
       try {
         await prisma.booking.create({
           data: {
             deviceId: d.id,
             isWalkIn: true,
+            // A walk-in never counts toward the player's one online booking.
+            userId: player?.id ?? null,
+            guestName,
             startTime: at,
-            endTime: new Date(at.getTime() + input.minutes * 60_000),
+            endTime: end,
             totalPrice: new Prisma.Decimal(0),
             status: BookingStatus.CONFIRMED,
             confirmedAt: at,
@@ -384,7 +445,15 @@ export async function runAction(
         }
         throw err;
       }
-      await audit({ pcNumber: input.pcNumber, minutes: input.minutes });
+      await audit({ pcNumber: input.pcNumber, minutes: input.minutes, ...(player ? { player: player.id } : {}), ...(guestName ? { guest: guestName } : {}) });
+      if (player?.telegramChatId) {
+        const chat = player.telegramChatId;
+        const arena = await prisma.cafe.findUnique({ where: { id: cafeId }, select: { nameAr: true } });
+        const where = d.label || `#${input.pcNumber}`;
+        background('walk-in player', () =>
+          tg('sendMessage', { chat_id: chat, text: ENGAGE_TEXT.ar.walkInForYou(arena?.nameAr ?? '', where, formatDamascusTime(end)) }),
+        );
+      }
       return { ok: true };
     }
     case 'shift': {

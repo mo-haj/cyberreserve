@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { StationIcon } from '@/components/StationIcons';
 import { Field } from '@/components/manage/fields';
 import PlayerBadge from '@/components/PlayerBadge';
+import { WhoPicker, whoBody, type Who } from '@/components/manage/who';
 import type { Action } from '@/components/manage/ManagePanel';
 import { groupName } from '@/lib/groups';
 import { dictionary, type Locale } from '@/lib/i18n';
@@ -115,6 +116,7 @@ const QUICK = [60, 120, 180, 300];
 
 export function StationPanel({
   locale,
+  slug,
   m,
   s,
   name,
@@ -125,6 +127,7 @@ export function StationPanel({
   onClose,
 }: {
   locale: Locale;
+  slug: string;
   m: ManageText;
   s: ManageStation;
   name: string;
@@ -138,6 +141,7 @@ export function StationPanel({
   const ref = useRef<HTMLDialogElement>(null);
   const now = useNow();
   const [minutes, setMinutes] = useState(60);
+  const [who, setWho] = useState<Who>({ kind: 'guest', name: '' });
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -260,7 +264,13 @@ export function StationPanel({
                   </button>
                 ))}
               </div>
-              <button type="button" className="btn-neon w-full" disabled={working} onClick={() => run('walk', { action: 'walkIn', minutes }, true)}>
+              <WhoPicker m={m} locale={locale} slug={slug} value={who} onChange={setWho} />
+              <button
+                type="button"
+                className="btn-neon w-full"
+                disabled={working || (who.kind === 'player' && !who.player)}
+                onClick={() => run('walk', { action: 'walkIn', minutes, ...whoBody(who) }, true)}
+              >
                 {m.startNow}
               </button>
             </section>

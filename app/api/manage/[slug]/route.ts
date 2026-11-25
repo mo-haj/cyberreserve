@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/session';
 import { NO_STORE, sameOrigin } from '@/lib/http';
 import { ManageAction } from '@/lib/manage/rules';
-import { getManageData, getMembership, runAction } from '@/lib/manage/service';
+import { findPlayers, getManageData, getMembership, runAction } from '@/lib/manage/service';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { now } from '@/lib/time';
 import { arenaActivity } from '@/lib/activity';
@@ -29,6 +29,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   if (!found) return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
   // ?activity=1: the activity tab (owners and the site admin only), loaded when opened.
   const q = new URL(request.url).searchParams;
+  // ?players=<name or phone>: pick a player for a walk-in (staff too).
+  if (q.has('players')) return NextResponse.json(await findPlayers(found.m.cafeId, q.get('players') ?? ''), { headers: NO_STORE });
   if (q.get('activity') === '1' || q.get('stats') === '1') {
     if (found.m.role !== 'OWNER' && !found.m.superAdmin) return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
     return NextResponse.json(q.get('stats') === '1' ? await arenaStats(found.m.cafeId) : await arenaActivity(found.m.cafeId), { headers: NO_STORE });

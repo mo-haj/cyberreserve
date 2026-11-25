@@ -298,6 +298,7 @@ function Stations({ locale, m, data, owner, action }: { locale: Locale; m: Manag
       {open && (
         <StationPanel
           locale={locale}
+          slug={data.arena.slug}
           m={m}
           s={open}
           name={nameOf(open)}

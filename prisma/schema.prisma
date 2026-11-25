@@ -351,6 +351,8 @@ model Booking {
   id             String           @id @default(uuid())
   userId         String?
   isWalkIn       Boolean          @default(false)
+  /// Walk-in without an account: the name the staff typed (optional).
+  guestName      String?
   deviceId       String
   startTime      DateTime         @db.Timestamptz(3)
   endTime        DateTime         @db.Timestamptz(3)
