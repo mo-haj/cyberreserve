@@ -1,0 +1,66 @@
+name: backup
+
+# Daily backup of the live database (Neon). The site runs on Vercel, where the
+# Docker backup container does not exist, so this job does it instead.
+#
+# The dump is ENCRYPTED before it is stored (players' names and phone numbers
+# are inside, and a public repo's artifacts can be downloaded by any GitHub
+# user). Without BACKUP_PASSPHRASE nobody can open it - keep the passphrase in
+# your password manager too, or the backups are useless to you as well.
+#
+# Needs two repository secrets (Settings -> Secrets and variables -> Actions):
+#   NEON_DATABASE_URL   the Neon connection string (same as DATABASE_URL in Vercel)
+#   BACKUP_PASSPHRASE   a long random passphrase (40+ characters)
+# Restore: see RESTORE.md, section D.
+
+on:
+  schedule:
+    - cron: '17 0 * * *' # 03:17 Damascus time, every day
+  workflow_dispatch: # "Run workflow" button for a backup right now
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check the secrets are set
+        env:
+          URL: ${{ secrets.NEON_DATABASE_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          [ -n "$URL" ] || { echo "::error::Add the NEON_DATABASE_URL secret"; exit 1; }
+          [ "${#PASS}" -ge 20 ] || { echo "::error::Add a BACKUP_PASSPHRASE secret of 20+ characters"; exit 1; }
+
+      - name: Dump the database
+        env:
+          URL: ${{ secrets.NEON_DATABASE_URL }}
+        run: |
+          # pg_dump from PostgreSQL 17 reads Neon's 15/16/17 servers.
+          docker run --rm -e URL postgres:17-alpine sh -c 'pg_dump "$URL" -Fc --no-owner --no-privileges' > db.dump
+          # A dump that cannot be listed is not a backup.
+          docker run --rm -v "$PWD:/w" postgres:17-alpine pg_restore --list /w/db.dump > /dev/null
+          echo "dump size: $(wc -c < db.dump) bytes"
+          [ "$(wc -c < db.dump)" -gt 10000 ] || { echo "::error::dump is suspiciously small"; exit 1; }
+
+      - name: Encrypt it
+        env:
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          openssl enc -aes-256-cbc -pbkdf2 -iter 300000 -salt -in db.dump -out "cyberreserve_$(date -u +%Y%m%d_%H%M).dump.enc" -pass env:PASS
+          shred -u db.dump 2>/dev/null || rm -f db.dump
+          ls -l *.dump.enc
+
+      - name: Keep it for 30 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_number }}
+          path: '*.dump.enc'
+          retention-days: 30
+          if-no-files-found: error

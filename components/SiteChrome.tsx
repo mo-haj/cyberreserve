@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { supportEmail } from '@/lib/site';
 import HowItWorks from '@/components/HowItWorks';
 import MobileMenu from '@/components/MobileMenu';
 import { manageText } from '@/lib/i18n-manage';
@@ -126,6 +127,7 @@ export function SiteHeader({
 
 export function SiteFooter({ locale }: { locale: Locale }) {
   const t = dictionary(locale);
+  const mail = supportEmail();
   return (
     <footer className="mx-auto mt-auto w-full max-w-site px-4 pb-4 pt-6 text-sm text-muted lg:px-8">
       <div className="flex flex-wrap items-center justify-between gap-4 border-t border-line pt-4">
@@ -140,6 +142,14 @@ export function SiteFooter({ locale }: { locale: Locale }) {
           <Link href="/privacy" className="hover:text-ink">
             {t.profile.privacyLink}
           </Link>
+          {mail && (
+            <a href={`mailto:${mail}`} className="hover:text-ink">
+              {t.join.contact}:{' '}
+              <bdi dir="ltr" className="text-cyan">
+                {mail}
+              </bdi>
+            </a>
+          )}
           <span>{t.footer.line}</span>
         </nav>
       </div>

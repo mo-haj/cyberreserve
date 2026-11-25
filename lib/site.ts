@@ -36,3 +36,9 @@ export async function requestHost(): Promise<string | null> {
   const h = await headers();
   return h.get('x-forwarded-host') ?? h.get('host');
 }
+
+/** Support / contact e-mail shown in the footer and in owner messages (SUPPORT_EMAIL). */
+export function supportEmail(): string | null {
+  const v = process.env.SUPPORT_EMAIL?.trim();
+  return v && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? v : null;
+}

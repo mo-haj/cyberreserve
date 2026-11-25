@@ -304,7 +304,7 @@ export function ConfirmDialog({
           onClose();
         }}
       >
-        {body && <p className="text-sm leading-relaxed text-muted">{body}</p>}
+        {body && <p className="whitespace-pre-line text-sm leading-relaxed text-muted">{body}</p>}
         {input && (
           <label className="block">
             <span className="text-sm font-semibold text-ink">{input.label}</span>

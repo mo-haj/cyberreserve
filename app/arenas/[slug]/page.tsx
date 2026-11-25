@@ -16,6 +16,7 @@ import { dictionary, pick } from '@/lib/i18n';
 import { getLocale } from '@/lib/locale';
 import { now } from '@/lib/time';
 import { prisma } from '@/lib/prisma';
+import { bookingOpen } from '@/lib/subscription';
 import { indexingOn, requestHost, siteUrl } from '@/lib/site';
 import { isFollowing, isWatching, recentReviews, upcomingTournaments } from '@/lib/engage';
 import { FollowAndWatch, Tournaments } from '@/components/ArenaEngage';
@@ -68,6 +69,8 @@ export default async function ArenaPage({ params }: Params) {
   const e = t.engage;
   const path = `/arenas/${arena.slug}`;
   const cafeId = (await prisma.cafe.findUnique({ where: { slug: arena.slug }, select: { id: true } }))!.id;
+  const subRow = await prisma.cafe.findUnique({ where: { id: cafeId }, select: { subEndsAt: true, subPaused: true } });
+  const canBook = subRow ? bookingOpen(subRow) : true;
   const [tournaments, reviews, following, watching] = await Promise.all([
     upcomingTournaments(cafeId, user?.id),
     recentReviews(cafeId),
@@ -274,6 +277,11 @@ export default async function ArenaPage({ params }: Params) {
             <section className="hud p-6">
               <h2 className="font-display text-xl font-bold text-ink">{t.arena.booking}</h2>
               <p className="mt-2 text-sm text-muted">{t.arena.bookingSoon}</p>
+              {!canBook && (
+                <p role="status" className="mt-3 bg-busy/10 px-3 py-2 text-sm text-busy shadow-[inset_0_0_0_1px_rgba(255,45,85,0.45)]">
+                  {e.bookingPaused}
+                </p>
+              )}
               {user && !user.profileComplete ? (
                 <Link href={`/profile?welcome=1&next=${encodeURIComponent(`/arenas/${arena.slug}`)}`} className="btn-neon mt-5 w-full">
                   {t.profile.incomplete}

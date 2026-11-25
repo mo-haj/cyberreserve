@@ -9,6 +9,7 @@ import { now as clockNow, formatDamascusTime } from '@/lib/time';
 import { escapeHtml, tg, tgResult } from '@/lib/telegram/api';
 import { background } from '@/lib/background';
 import { closeStaleShifts, logArena, noShiftAlerts } from '@/lib/activity';
+import { bookingOpen, subscriptionReminders } from '@/lib/subscription';
 import { askRatings, nightlySummaries, processFreeWatches } from '@/lib/engage';
 import { GROUP_SELECT } from '@/lib/cafes';
 import { offerLabel } from '@/lib/offers';
@@ -33,6 +34,8 @@ export type CreateError =
   | 'arena_cancelled'
   /** Too many cancellations in the last 24 hours. */
   | 'too_many_cancels'
+  /** The arena's subscription ended or is paused. */
+  | 'arena_paused'
   /** Several stations at once is for the arena's VIP players. */
   | 'not_vip'
   /** Fewer stations free at that time than asked for. */
@@ -303,11 +306,20 @@ export async function createBooking(input: {
     where: { pcNumber: input.pcNumber, archivedAt: null, cafe: { slug: input.slug, isPublished: true } },
     include: {
       cafe: {
-        select: { id: true, hourlyRate: true, nightShiftRate: true, offers: { select: { hours: true, kind: true, price: true, stationType: true } } },
+        select: {
+          id: true,
+          hourlyRate: true,
+          nightShiftRate: true,
+          subEndsAt: true,
+          subPaused: true,
+          offers: { select: { hours: true, kind: true, price: true, stationType: true } },
+        },
       },
     },
   });
   if (!device) return { ok: false, error: 'not_found' };
+  // The arena's subscription ended (or was paused): no online booking for now.
+  if (!bookingOpen(device.cafe, at)) return { ok: false, error: 'arena_paused' };
   if (device.isMaintenance) return { ok: false, error: 'maintenance' };
 
   // Booking and cancelling over and over floods the arenas' Telegram: pause it.
@@ -897,6 +909,7 @@ export async function tick(): Promise<void> {
     ['ratings', askRatings],
     ['summaries', nightlySummaries],
     ['no shift', noShiftAlerts],
+    ['subscriptions', subscriptionReminders],
   ] as const) {
     await job(at).catch((err) => console.error(`tick ${name}`, err));
   }

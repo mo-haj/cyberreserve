@@ -141,6 +141,14 @@ model Cafe {
   closeMin       Int?
   /// Damascus date (YYYY-MM-DD) of the last nightly summary sent to the owners.
   summarySentOn  String?
+  /// Subscription to the platform (site admin). subEndsAt null = not tracked yet (free).
+  /// subPaused = switched off by hand. Expired or paused: online booking stops.
+  subPlan        String?
+  subEndsAt      DateTime?      @db.Timestamptz(3)
+  subPaused      Boolean        @default(false)
+  /// Owner reminders already sent for the current period (7 days before / on expiry).
+  subWarnedAt    DateTime?      @db.Timestamptz(3)
+  subExpiredAt   DateTime?      @db.Timestamptz(3)
   /// Last "nobody is on shift" alert sent to the owners.
   noShiftAlertAt DateTime?      @db.Timestamptz(3)
   hourlyRate     Decimal        @db.Decimal(12, 2)

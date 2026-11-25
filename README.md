@@ -270,7 +270,8 @@ Vercel runs the site, **Neon** is the database, **cron-job.org** triggers the mi
    adds the demo arenas, and points the Telegram bot at the site.
    From then on the bot answers through Vercel; the helper on the PC shows "409" and can be stopped.
 4. **cron-job.org** (free): create a job, URL
-   `https://<your-site>/api/cron/tick?key=<CRON_SECRET>`, every **1 minute**.
+   `https://<your-site>/api/cron/tick`, every **1 minute**, and under **Advanced → Headers** add
+   `Authorization` = `Bearer <CRON_SECRET>` (the key never goes in the link).
 5. Put your Telegram ID (from @userinfobot) in `ADMIN_TELEGRAM_IDS` and redeploy, then open **/admin**: you are the site admin and can add arenas and owners from the dashboard.
 
 To go back to the bot on the PC: in a browser open

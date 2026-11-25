@@ -48,3 +48,38 @@ docker compose exec db-backup sh /usr/local/bin/backup.sh --once
   drive, cloud storage) — a dead disk takes both.
 - The dump includes the double-booking lock (`no_overlap_booking`), so a restored database is
   still protected.
+
+## D. Live site (Vercel + Neon): the daily GitHub backup
+
+The `backup` workflow (`.github/workflows/backup.yml`) dumps the Neon database every night at
+03:17 Damascus time and keeps each dump for 30 days, **encrypted** with `BACKUP_PASSPHRASE`.
+
+**Set up once** — GitHub → the repo → Settings → Secrets and variables → Actions → New repository secret:
+- `NEON_DATABASE_URL` = the same value as `DATABASE_URL` in Vercel
+- `BACKUP_PASSPHRASE` = a long random passphrase. Save it in your password manager as well:
+  without it the backups cannot be opened by anyone, you included.
+
+Then Actions → **backup** → **Run workflow** once, and check it turns green.
+
+**Get a backup** — Actions → backup → pick a run → Artifacts → download `db-backup-…` (a zip) and unzip it.
+
+**Open it** (Git Bash on Windows, or any Linux/Mac terminal):
+
+```
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 300000 -in cyberreserve_YYYYMMDD_HHMM.dump.enc -out cyberreserve.dump
+```
+
+It asks for the passphrase.
+
+**Restore into Neon** — safest is a NEW Neon branch or database first, check it, then switch
+`DATABASE_URL` in Vercel to it:
+
+```
+docker run --rm -i postgres:17-alpine pg_restore -d "<NEW_DATABASE_URL>" --no-owner --no-privileges < cyberreserve.dump
+```
+
+Or into the local Docker stack: section B, with this file.
+
+Notes:
+- GitHub stops scheduled jobs in a repo with no commits for 60 days; a push or one manual run restarts them.
+- Neon's own history (point-in-time restore) also exists, but on the free plan it only reaches back a short time.

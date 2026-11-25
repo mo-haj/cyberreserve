@@ -17,6 +17,8 @@ import { ENGAGE_TEXT, whenText } from '@/lib/engage-texts';
 import { background } from '@/lib/background';
 import { offerLabel } from '@/lib/offers';
 import { parseHHMM, toHHMM } from '@/lib/hours';
+import { extendSubscription, subState } from '@/lib/subscription';
+import { supportEmail } from '@/lib/site';
 import { fromDamascusParts } from '@/lib/time';
 import type { GroupView } from '@/lib/groups';
 
@@ -267,6 +269,8 @@ export async function getManageData(cafeId: string, viewer: { role: 'OWNER' | 'S
     games: { selected: cafe.games.map((g) => g.game.slug), catalogue },
     isPublished: cafe.isPublished,
     searchVisible: cafe.searchVisible,
+    /** Platform subscription, for the owner's notice and the site admin's controls. */
+    sub: { state: subState(cafe), plan: cafe.subPlan, endsAt: cafe.subEndsAt?.toISOString() ?? null, contact: supportEmail() },
     posts: cafe.sections,
     offers: cafe.offers.map((o) => ({ ...o, kind: o.kind as OfferKind, price: o.price.toFixed(0) })),
     players: ownerView ? await arenaPlayers(cafeId) : [],
@@ -641,6 +645,14 @@ export async function runAction(
     case 'removeEntry': {
       await prisma.tournamentEntry.deleteMany({ where: { tournamentId: input.id, userId: input.userId, tournament: { cafeId } } });
       await audit({ tournament: input.id, player: input.userId });
+      return { ok: true };
+    }
+    case 'subscription': {
+      if (input.op === 'MONTH' || input.op === 'YEAR') await extendSubscription(cafeId, input.op);
+      else if (input.op === 'free')
+        await prisma.cafe.update({ where: { id: cafeId }, data: { subPlan: null, subEndsAt: null, subPaused: false, subWarnedAt: null, subExpiredAt: null } });
+      else await prisma.cafe.update({ where: { id: cafeId }, data: { subPaused: input.op === 'pause' } });
+      await audit({ subscription: input.op });
       return { ok: true };
     }
     case 'setSearchVisible': {

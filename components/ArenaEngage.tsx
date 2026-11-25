@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { dictionary, pick, type Locale } from '@/lib/i18n';
 import type { TournamentView } from '@/lib/engage';
 import { whenText } from '@/lib/engage-texts';
+import { ConfirmDialog } from '@/components/manage/moderation';
 
 async function post(url: string, body: unknown): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -121,9 +122,11 @@ export function Tournaments({
   const [list, setList] = useState(items);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ id: string; text: string } | null>(null);
+  const [asking, setAsking] = useState<TournamentView | null>(null);
   if (list.length === 0) return null;
 
   async function toggle(x: TournamentView) {
+    setAsking(null);
     setBusy(x.id);
     setMsg(null);
     const r = await post(`/api/tournaments/${x.id}/join`, { on: !x.joined });
@@ -142,14 +145,18 @@ export function Tournaments({
       <h2 id="tournaments-title" className="font-display text-2xl font-bold text-ink">
         🏆 {t.tournaments}
       </h2>
-      <ul className="mt-4 grid gap-3 md:grid-cols-2">
+      {/* Centered, up to three side by side; a fourth starts a new row. */}
+      <ul className="mt-5 flex flex-wrap justify-center gap-4">
         {list.map((x) => {
           const started = new Date(x.startsAt) <= new Date();
           const full = x.entries >= x.maxPlayers;
           const prize = pick(locale, x.prizeEn, x.prizeAr);
           const note = pick(locale, x.noteEn, x.noteAr);
           return (
-            <li key={x.id} className="flex flex-col gap-2 bg-panel2/60 p-4 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.35)]">
+            <li
+              key={x.id}
+              className="flex w-full flex-col gap-2 bg-panel2/60 p-4 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.35)] sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.7rem)] lg:max-w-[24rem]"
+            >
               <p className="font-display text-lg font-bold text-ink">{pick(locale, x.titleEn, x.titleAr)}</p>
               <p className="text-sm text-muted">
                 🎮 {x.game} · 🗓 <bdi>{whenText(locale, x.startsAt)}</bdi>
@@ -178,7 +185,7 @@ export function Tournaments({
                     </button>
                   </div>
                 ) : (
-                  <button type="button" className="btn-neon w-full text-sm" disabled={busy === x.id || full} onClick={() => toggle(x)}>
+                  <button type="button" className="btn-neon w-full text-sm" disabled={busy === x.id || full} onClick={() => setAsking(x)}>
                     {full ? t.full : t.join}
                   </button>
                 )}
@@ -188,6 +195,16 @@ export function Tournaments({
           );
         })}
       </ul>
+      {asking && (
+        <ConfirmDialog
+          title={t.joinTitle(pick(locale, asking.titleEn, asking.titleAr))}
+          body={`${whenText(locale, asking.startsAt)}\n\n${asking.fee === '0' ? t.joinFree : t.joinPay(asking.fee)}\n\n${t.joinTelegram}`}
+          confirmLabel={t.joinConfirm}
+          cancelLabel={t.joinCancel}
+          onConfirm={() => toggle(asking)}
+          onClose={() => setAsking(null)}
+        />
+      )}
     </section>
   );
 }

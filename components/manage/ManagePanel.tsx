@@ -12,7 +12,7 @@ import { googleMapsUrl } from '@/lib/maps';
 import { parseLatLng } from '@/lib/manage/rules';
 import { Field, IconButton, TextArea } from '@/components/manage/fields';
 import { StatsTab, TournamentsTab } from '@/components/manage/engage';
-import { Access, Activity, Offers, Players, Posts } from '@/components/manage/tabs';
+import { SubscriptionNotice, Access, Activity, Offers, Players, Posts } from '@/components/manage/tabs';
 import { StationPanel, StationTile } from '@/components/manage/floor';
 import PlayerBadge from '@/components/PlayerBadge';
 import { CancelDialog } from '@/components/manage/moderation';
@@ -179,6 +179,7 @@ export default function ManagePanel({
           <AlertsToggle m={m} on={alerts.on} onToggle={alerts.toggle} onTest={alerts.askSystem} />
         </div>
       </div>
+      <SubscriptionNotice m={m} data={data} />
       {!data.isPublished && (
         <div className="panel-in flex flex-wrap items-center justify-between gap-3 bg-amber-400/10 px-4 py-3 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.55)]">
           <p className="text-sm text-amber-200">
@@ -613,6 +614,23 @@ function ArenaForm({ locale, m, data, action }: { locale: Locale; m: ManageText;
 
 const GENRE_KEYS = Object.keys(GENRES) as GenreKey[];
 
+/** Upload a picture for one of the arena's own games (shrunk first). */
+async function uploadGamePhoto(slug: string, gameId: string, file: File, m: ManageText, action: Action, setData: (d: ManageData) => void) {
+  action.setError(null);
+  try {
+    const form = new FormData();
+    form.set('kind', 'game');
+    form.set('itemId', gameId);
+    form.set('file', await shrinkImage(file, 'game'), 'photo');
+    const res = await fetch(`/api/manage/${slug}/image`, { method: 'POST', body: form, signal: AbortSignal.timeout(45_000) });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) action.setError(m.errors[json.error] ?? m.errors.generic);
+    else setData(json.data);
+  } catch {
+    action.setError(m.errors.generic);
+  }
+}
+
 function GamesForm({
   locale,
   slug,
@@ -657,14 +675,42 @@ function GamesForm({
     });
   }
 
+  // Optional picture for the game being added; sent once the game exists.
+  const [newFile, setNewFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const pending = useRef<{ name: string; file: File } | null>(null);
+  useEffect(() => {
+    if (!newFile) return setPreview(null);
+    const url = URL.createObjectURL(newFile);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [newFile]);
+  useEffect(() => {
+    const p = pending.current;
+    if (!p) return;
+    const game = data.games.catalogue.find((g) => g.custom && g.name.toLowerCase() === p.name.toLowerCase());
+    if (!game) return;
+    pending.current = null;
+    void uploadGamePhoto(slug, game.id, p.file, m, action, setData).finally(() => setAdding(false));
+  }, [data.games, slug, m, action, setData]);
+
   async function addGame(e: React.FormEvent) {
     e.preventDefault();
-    const name = newName.trim();
+    const name = newName.replace(/\s+/g, ' ').trim();
     if (!name) return;
     const known = data.games.catalogue.find((g) => g.name.toLowerCase() === name.toLowerCase());
+    setAdding(true);
+    if (newFile && !(known && !known.custom)) pending.current = { name, file: newFile };
     if (await action.run('addGame', { action: 'addGame', name, genre: newGenre })) {
       setNewName('');
+      setNewGenre('other');
+      setNewFile(null);
       if (known) setSelected((s) => new Set(s).add(known.slug));
+      if (!pending.current) setAdding(false);
+    } else {
+      pending.current = null;
+      setAdding(false);
     }
   }
 
@@ -675,50 +721,97 @@ function GamesForm({
           <h2 className="font-display text-lg font-bold text-ink">{m.ownGameTitle}</h2>
           <p className="mt-1 text-sm text-muted">{m.ownGameHint}</p>
         </div>
-        <form onSubmit={addGame} className="flex flex-wrap items-end gap-3">
-          <label className="min-w-[12rem] flex-[2]">
-            <span className="text-sm font-semibold text-ink">{m.gameName}</span>
-            <span className="scan-field mt-1.5 flex px-4">
+        <form onSubmit={addGame} className="flex flex-col gap-4 bg-void/40 p-4 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.3)] sm:flex-row sm:items-stretch">
+          {/* Picture (optional): a square tile, click to choose, ✕ to drop. */}
+          <div className="flex shrink-0 flex-col items-center gap-1.5">
+            <label
+              className={`group relative grid h-24 w-24 cursor-pointer place-items-center overflow-hidden bg-panel2 text-muted transition-colors hover:text-ink ${
+                preview ? 'shadow-[inset_0_0_0_1px_rgba(41,224,255,0.6)]' : 'shadow-[inset_0_0_0_1px_rgba(157,92,255,0.45)] hover:bg-violet/10'
+              }`}
+            >
+              {preview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={preview} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="flex flex-col items-center gap-1 text-xs">
+                  <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                    <rect x="3" y="5" width="18" height="14" rx="1.5" />
+                    <circle cx="9" cy="10" r="1.8" />
+                    <path d="M21 16l-5-5-8 8" strokeLinejoin="round" />
+                  </svg>
+                  {m.gamePhotoAdd}
+                </span>
+              )}
               <input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                maxLength={60}
-                dir="auto"
-                placeholder="Elden Ring"
-                className="min-w-0 flex-1 bg-transparent py-2.5 text-ink placeholder:text-muted/50 outline-none"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg"
+                className="sr-only"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = '';
+                  if (f) setNewFile(f);
+                }}
               />
-            </span>
-          </label>
-          <label className="min-w-[9rem] flex-1">
-            <span className="text-sm font-semibold text-ink">{m.gameGenre}</span>
-            <span className="scan-field mt-1.5 flex px-3">
-              <select
-                value={newGenre}
-                onChange={(e) => setNewGenre(e.target.value as GenreKey)}
-                className="min-w-0 flex-1 bg-transparent py-2.5 text-ink outline-none [&>option]:bg-panel"
-              >
-                {GENRE_KEYS.map((k) => (
-                  <option key={k} value={k}>
-                    {pick(locale, GENRES[k].en, GENRES[k].ar)}
-                  </option>
-                ))}
-              </select>
-            </span>
-          </label>
-          <button type="submit" className="btn-neon" disabled={!!action.busy || !newName.trim()}>
-            + {m.addGame}
-          </button>
-        </form>
-        {own.length > 0 && (
-          <div>
-            <p className="mb-2 text-sm font-semibold text-ink">{m.yourGames}</p>
-            <p className="mb-3 bg-cyan/5 px-3 py-2 text-xs leading-relaxed text-muted shadow-[inset_0_0_0_1px_rgba(41,224,255,0.3)]">
+            </label>
+            {newFile ? (
+              <button type="button" className="text-xs text-muted hover:text-busy" onClick={() => setNewFile(null)}>
+                ✕ {m.gamePhotoRemove}
+              </button>
+            ) : (
+              <span className="text-xs text-muted/70">{m.optional}</span>
+            )}
+          </div>
+
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
+              <label className="min-w-0">
+                <span className="text-sm font-semibold text-ink">{m.gameName}</span>
+                <span className="scan-field mt-1.5 flex px-4">
+                  <input
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    maxLength={60}
+                    dir="auto"
+                    required
+                    placeholder="Elden Ring"
+                    className="min-w-0 flex-1 bg-transparent py-2.5 text-ink placeholder:text-muted/50 outline-none"
+                  />
+                </span>
+              </label>
+              <label className="min-w-0">
+                <span className="text-sm font-semibold text-ink">{m.gameGenre}</span>
+                <span className="scan-field mt-1.5 flex px-3">
+                  <select
+                    value={newGenre}
+                    onChange={(e) => setNewGenre(e.target.value as GenreKey)}
+                    className="min-w-0 flex-1 bg-transparent py-2.5 text-ink outline-none [&>option]:bg-panel"
+                  >
+                    {GENRE_KEYS.map((k) => (
+                      <option key={k} value={k}>
+                        {pick(locale, GENRES[k].en, GENRES[k].ar)}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+              </label>
+            </div>
+            <p className="text-xs leading-relaxed text-muted">
               💡 {m.logoTipBefore}
               <a href="https://dashboardicons.com/icons" target="_blank" rel="noopener noreferrer" dir="ltr" className="font-semibold text-cyan underline-offset-2 hover:underline">
                 dashboardicons.com
               </a>
-              {m.logoTipAfter}
+              {m.logoTipAfterAdd}
             </p>
+            <div className="mt-auto flex justify-end">
+              <button type="submit" className="btn-neon" disabled={adding || !!action.busy || !newName.trim()}>
+                {adding ? m.saving : `+ ${m.addGame}`}
+              </button>
+            </div>
+          </div>
+        </form>
+        {own.length > 0 && (
+          <div>
+            <p className="mb-2 text-sm font-semibold text-ink">{m.yourGames}</p>
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {own.map((g) => (
                 <OwnGame key={g.slug} locale={locale} slug={slug} m={m} game={g} setData={setData} action={action} superAdmin={superAdmin} />
@@ -817,38 +910,25 @@ function OwnGame({
 
   async function photo(file: File) {
     setBusy(true);
-    action.setError(null);
-    try {
-      const form = new FormData();
-      form.set('kind', 'game');
-      form.set('itemId', game.id);
-      form.set('file', await shrinkImage(file, 'game'), 'photo');
-      const res = await fetch(`/api/manage/${slug}/image`, {
-        method: 'POST',
-        body: form,
-        signal: AbortSignal.timeout(45_000),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) action.setError(m.errors[json.error] ?? m.errors.generic);
-      else setData(json.data);
-    } catch {
-      action.setError(m.errors.generic);
-    } finally {
-      setBusy(false);
-    }
+    await uploadGamePhoto(slug, game.id, file, m, action, setData);
+    setBusy(false);
   }
 
   return (
     <li className="flex items-center gap-3 bg-void/50 p-2 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.3)]">
       <label
-        className={`relative grid h-12 w-12 shrink-0 cursor-pointer place-items-center overflow-hidden bg-panel2 text-xs text-muted ${busy ? 'opacity-60' : ''}`}
+        title={game.imageUrl ? m.gamePhotoChange : m.gamePhotoAdd}
+        className={`relative grid h-12 w-12 shrink-0 cursor-pointer place-items-center overflow-hidden bg-panel2 text-xs text-muted shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] hover:text-ink ${busy ? 'opacity-60' : ''}`}
       >
         {game.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={game.imageUrl} alt="" className="h-full w-full object-cover" />
         ) : (
-          <span>{busy ? '…' : m.gamePhoto}</span>
+          <span className="text-lg" aria-hidden="true">
+            {busy ? '…' : '+'}
+          </span>
         )}
+        <span className="sr-only">{game.imageUrl ? m.gamePhotoChange : m.gamePhotoAdd}</span>
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg"

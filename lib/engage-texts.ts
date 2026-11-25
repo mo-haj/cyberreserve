@@ -54,6 +54,9 @@ export const ENGAGE_TEXT = {
     rateFail: 'لا يمكن تقييم هذه الزيارة.',
     openArena: 'فتح صفحة الصالة',
     newOffer: (arena: string, offer: string) => `🏷 عرض جديد في ${arena}:\n${offer}`,
+    joinedTournament: (arena: string, title: string, when: string, fee: string) =>
+      `✅ تم تسجيلك في «${title}»\n🏟 ${arena}\n🗓 ${when}\n\n` +
+      (fee === '0' ? 'البطولة مجانية. احضر قبل الموعد بقليل.' : `💵 رسوم الدخول: ${fee} ل.س\nالرجاء دفع الرسوم في الصالة قبل بدء البطولة لتثبيت مكانك.`),
     newTournament: (arena: string, title: string, game: string, when: string, prize: string) =>
       `🏆 بطولة جديدة في ${arena}\n\n${title}\n🎮 ${game}\n🗓 ${when}${prize ? `\n🎁 ${prize}` : ''}\n\nسجّل من صفحة الصالة قبل امتلاء الأماكن.`,
   },
@@ -84,6 +87,9 @@ export const ENGAGE_TEXT = {
     rateFail: 'This visit cannot be rated.',
     openArena: 'Open arena page',
     newOffer: (arena: string, offer: string) => `🏷 New offer at ${arena}:\n${offer}`,
+    joinedTournament: (arena: string, title: string, when: string, fee: string) =>
+      `✅ You're signed up for “${title}”\n🏟 ${arena}\n🗓 ${when}\n\n` +
+      (fee === '0' ? 'Entry is free. Arrive a little before the start.' : `💵 Entry fee: ${fee} SYP\nPlease pay the fee at the arena before the tournament starts to keep your place.`),
     newTournament: (arena: string, title: string, game: string, when: string, prize: string) =>
       `🏆 New tournament at ${arena}\n\n${title}\n🎮 ${game}\n🗓 ${when}${prize ? `\n🎁 ${prize}` : ''}\n\nSign up on the arena page before it fills up.`,
   },

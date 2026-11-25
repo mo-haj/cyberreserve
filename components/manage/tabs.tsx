@@ -424,6 +424,50 @@ export function Access({ m, data, action }: { m: ManageText; data: ManageData; a
           {data.isPublished ? m.hide : m.publish}
         </button>
         <div className="border-t border-line pt-4">
+          <h3 className="font-display text-base font-bold text-ink">{m.subTitle}</h3>
+          <p className="mt-1 text-xs text-muted">{m.subHint}</p>
+          <p className={`mt-2 text-sm ${SUB_TONE[data.sub.state]}`}>
+            {m.subState[data.sub.state]}
+            {data.sub.endsAt && (
+              <>
+                {' · '}
+                {m.subUntil}{' '}
+                <bdi dir="ltr" className="font-hud">
+                  {formatDamascusDate(new Date(data.sub.endsAt))}
+                </bdi>
+              </>
+            )}
+            {data.sub.plan && <span className="text-muted"> · {m.subPlan[data.sub.plan] ?? data.sub.plan}</span>}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className="btn-neon text-sm" disabled={!!action.busy} onClick={() => action.run('sub', { action: 'subscription', op: 'MONTH' })}>
+              + {m.subMonth}
+            </button>
+            <button type="button" className="btn-neon text-sm" disabled={!!action.busy} onClick={() => action.run('sub', { action: 'subscription', op: 'YEAR' })}>
+              + {m.subYear}
+            </button>
+            {data.sub.state === 'paused' ? (
+              <button type="button" className="btn-ghost text-sm" disabled={!!action.busy} onClick={() => action.run('sub', { action: 'subscription', op: 'resume' })}>
+                {m.subResume}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="px-4 py-2 text-sm font-semibold text-busy shadow-[inset_0_0_0_1px_rgba(255,45,85,0.6)] hover:bg-busy hover:text-white"
+                disabled={!!action.busy}
+                onClick={() => action.run('sub', { action: 'subscription', op: 'pause' })}
+              >
+                {m.subPause}
+              </button>
+            )}
+            {data.sub.state !== 'free' && (
+              <button type="button" className="text-xs text-muted hover:text-ink" disabled={!!action.busy} onClick={() => action.run('sub', { action: 'subscription', op: 'free' })}>
+                {m.subFree}
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="border-t border-line pt-4">
           <h3 className="font-display text-base font-bold text-ink">{m.googleTitle}</h3>
           <p className="mt-1 text-xs text-muted">{m.googleHint}</p>
           <p className={`mt-2 flex items-center gap-2 text-sm ${data.searchVisible ? 'text-free' : 'text-muted'}`}>
@@ -684,6 +728,37 @@ function OfferForm({
         </div>
       </form>
     </li>
+  );
+}
+
+const SUB_TONE: Record<string, string> = { free: 'text-muted', active: 'text-free', ending: 'text-amber-300', expired: 'text-busy', paused: 'text-busy' };
+
+/** The owner's notice when the platform subscription is ending, ended or paused. */
+export function SubscriptionNotice({ m, data }: { m: ManageText; data: ManageData }) {
+  const { state, endsAt, contact } = data.sub;
+  if (state !== 'ending' && state !== 'expired' && state !== 'paused') return null;
+  const warn = state === 'ending';
+  return (
+    <div
+      role="status"
+      className={`px-4 py-3 text-sm ${warn ? 'bg-amber-400/10 text-amber-200 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.5)]' : 'bg-busy/10 text-ink shadow-[inset_0_0_0_1px_rgba(255,45,85,0.55)]'}`}
+    >
+      <p className="font-semibold">
+        {warn ? '⏳ ' : '⛔ '}
+        {warn && endsAt ? m.subEndingOwner(formatDamascusDate(new Date(endsAt))) : state === 'paused' ? m.subPausedOwner : m.subExpiredOwner}
+      </p>
+      <p className="mt-1 text-xs opacity-80">
+        {m.subRenew}
+        {contact && (
+          <>
+            {' '}
+            <a href={`mailto:${contact}`} dir="ltr" className="font-semibold text-cyan hover:underline">
+              {contact}
+            </a>
+          </>
+        )}
+      </p>
+    </div>
   );
 }
 

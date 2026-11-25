@@ -7,7 +7,7 @@ import { now, startOfDamascusDay, toDamascusParts, formatDamascusDate } from '@/
 import { tg } from '@/lib/telegram/api';
 import { siteUrl } from '@/lib/site';
 import { formatWhen, type BotLang } from '@/lib/booking/texts';
-import { ENGAGE_TEXT } from '@/lib/engage-texts';
+import { ENGAGE_TEXT, whenText } from '@/lib/engage-texts';
 
 const HOLDING: BookingStatus[] = [BookingStatus.PENDING, BookingStatus.CONFIRMED];
 const MIN = 60_000;
@@ -365,13 +365,40 @@ export async function joinTournament(userId: string, id: string, on: boolean): P
   const ban = await prisma.arenaBan.findUnique({ where: { cafeId_userId: { cafeId: t.cafeId, userId } } });
   if (ban && (!ban.until || ban.until > now())) return 'banned';
   // Count and insert under a lock on the tournament row, so the last seat goes once.
-  return prisma.$transaction(async (tx) => {
+  const r = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Tournament" WHERE id = ${id} FOR UPDATE`;
-    if (await tx.tournamentEntry.findUnique({ where: { tournamentId_userId: { tournamentId: id, userId } } })) return 'ok' as const;
+    if (await tx.tournamentEntry.findUnique({ where: { tournamentId_userId: { tournamentId: id, userId } } })) return 'already' as const;
     if ((await tx.tournamentEntry.count({ where: { tournamentId: id } })) >= t.maxPlayers) return 'full' as const;
     await tx.tournamentEntry.create({ data: { tournamentId: id, userId } });
     return 'ok' as const;
   });
+  if (r === 'full') return 'full';
+  // A new sign-up: the player gets the details (and the fee to pay at the arena) on Telegram.
+  if (r === 'ok') await tellJoined(userId, id).catch(() => undefined);
+  return 'ok';
+}
+
+async function tellJoined(userId: string, tournamentId: string): Promise<void> {
+  const [u, t] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { telegramChatId: true } }),
+    prisma.tournament.findUnique({
+      where: { id: tournamentId },
+      select: { titleAr: true, titleEn: true, startsAt: true, fee: true, cafe: { select: { slug: true, nameAr: true, nameEn: true } } },
+    }),
+  ]);
+  if (!u?.telegramChatId || !t) return;
+  const lang = await langOf(userId);
+  const link = arenaLink(t.cafe.slug);
+  await send(
+    u.telegramChatId,
+    ENGAGE_TEXT[lang].joinedTournament(
+      lang === 'ar' ? t.cafe.nameAr : t.cafe.nameEn,
+      lang === 'ar' ? t.titleAr : t.titleEn,
+      whenText(lang, t.startsAt.toISOString()),
+      t.fee.toFixed(0),
+    ),
+    link ? [[{ text: ENGAGE_TEXT[lang].openArena, url: link }]] : undefined,
+  );
 }
 
 // ------------------------------------------------------------------ 3. stats
