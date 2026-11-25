@@ -28,7 +28,10 @@ export function middleware(request: NextRequest) {
 
   if (request.cookies.get('cr_session')?.value) return NextResponse.next();
   const next = path.startsWith('/manage') ? path.replace(/^\/manage/, '/admin') : path;
-  // A relative Location: the browser stays on the host it asked for, and a
-  // forged X-Forwarded-Host can never send the visitor to another site.
-  return new NextResponse(null, { status: 307, headers: { Location: `/login?next=${encodeURIComponent(next)}` } });
+  // Same host the request came in on (Next needs an absolute URL here; a
+  // relative Location makes it throw and answer 500).
+  const login = request.nextUrl.clone();
+  login.pathname = '/login';
+  login.search = `?next=${encodeURIComponent(next)}`;
+  return NextResponse.redirect(login, 307);
 }

@@ -244,19 +244,21 @@ if [ -z "$SKIP_HTTP" ]; then
   step "Telegram sign-in"
   code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/api/telegram/webhook/wrong-secret")"
   [ "$code" = "404" ] && ok "webhook rejects a wrong secret (404)" || bad "webhook with wrong secret -> $code"
-  body="$(curl -s -X POST -H 'content-type: application/json' -d '{"token":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}' "$BASE_URL/api/auth/telegram/status")"
+  body="$(curl -s -X POST -H "origin: $BASE_URL" -H 'content-type: application/json' -d '{"token":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}' "$BASE_URL/api/auth/telegram/status")"
   echo "$body" | grep -q '"expired"' && ok "login status check reads the database (unknown token -> expired)" || bad "login status check failed" "$body"
+  code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'origin: https://evil.example' "$BASE_URL/api/auth/telegram/start")"
+  [ "$code" = "403" ] && ok "sign-in start refuses other websites (403)" || bad "cross-site sign-in start -> $code (expected 403)"
   code="$(http_code -H 'Cookie: cr_session=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' "$BASE_URL/")"
   [ "$code" = "200" ] && ok "a fake session cookie is ignored safely" || bad "fake session cookie -> $code"
   if [ -z "$(envval TELEGRAM_BOT_TOKEN)" ]; then
-    body="$(curl -s -X POST "$BASE_URL/api/auth/telegram/start")"
+    body="$(curl -s -X POST -H "origin: $BASE_URL" "$BASE_URL/api/auth/telegram/start")"
     echo "$body" | grep -q 'not_configured' && ok "no bot token yet: sign-in reports 'not set up' (expected until you add one)" || bad "sign-in start without token" "$body"
   else
-    body="$(curl -s -X POST "$BASE_URL/api/auth/telegram/start")"
+    body="$(curl -s -X POST -H "origin: $BASE_URL" "$BASE_URL/api/auth/telegram/start")"
     if echo "$body" | grep -q '"botUrl":"https://t.me/'; then
       ok "sign-in start creates a login request with a t.me link"
       token="$(echo "$body" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
-      st="$(curl -s -X POST -H 'content-type: application/json' -d "{\"token\":\"$token\"}" "$BASE_URL/api/auth/telegram/status")"
+      st="$(curl -s -X POST -H "origin: $BASE_URL" -H 'content-type: application/json' -d "{\"token\":\"$token\"}" "$BASE_URL/api/auth/telegram/status")"
       echo "$st" | grep -q '"pending"' && ok "new login request is pending until Telegram confirms" || bad "login request status" "$st"
     else
       bad "sign-in start with a bot token" "$body"
