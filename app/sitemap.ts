@@ -1,16 +1,16 @@
 import type { MetadataRoute } from 'next';
 import { prisma } from '@/lib/prisma';
-import { indexingOn, siteUrl } from '@/lib/site';
+import { indexingOn, requestHost, siteUrl } from '@/lib/site';
 
-// Every published arena page, so Google finds them without waiting for links.
+// Arena pages the site admin marked for Google (real arenas), so they are found quickly.
 export const dynamic = 'force-dynamic';
 export const revalidate = 3600;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  if (!indexingOn()) return [];
+  if (!indexingOn(await requestHost())) return [];
   const site = siteUrl() ?? '';
   const arenas = await prisma.cafe
-    .findMany({ where: { isPublished: true, isDemo: false }, select: { slug: true, updatedAt: true } })
+    .findMany({ where: { isPublished: true, isDemo: false, searchVisible: true }, select: { slug: true, updatedAt: true } })
     .catch(() => [] as { slug: string; updatedAt: Date }[]);
   return [
     { url: `${site}/`, changeFrequency: 'hourly', priority: 1 },

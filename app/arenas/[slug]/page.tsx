@@ -16,7 +16,7 @@ import { dictionary, pick } from '@/lib/i18n';
 import { getLocale } from '@/lib/locale';
 import { now } from '@/lib/time';
 import { prisma } from '@/lib/prisma';
-import { indexingOn, siteUrl } from '@/lib/site';
+import { indexingOn, requestHost, siteUrl } from '@/lib/site';
 import { isFollowing, isWatching, recentReviews, upcomingTournaments } from '@/lib/engage';
 import { FollowAndWatch, Tournaments } from '@/components/ArenaEngage';
 
@@ -25,6 +25,13 @@ export const dynamic = 'force-dynamic';
 type Params = { params: Promise<{ slug: string }> };
 
 const SLUG = /^[a-z0-9-]{1,60}$/;
+
+/** Shown to search engines: on the real domain, and marked "show on Google" by the site admin. */
+async function listedOnGoogle(slug: string, isDemo: boolean): Promise<boolean> {
+  if (isDemo || !indexingOn(await requestHost())) return false;
+  const c = await prisma.cafe.findUnique({ where: { slug }, select: { searchVisible: true } });
+  return !!c?.searchVisible;
+}
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { slug } = await params;
@@ -45,7 +52,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     description,
     alternates: { canonical: `/arenas/${arena.slug}` },
     openGraph: { type: 'website', title, description, url: `/arenas/${arena.slug}`, ...(image ? { images: [{ url: image }] } : {}) },
-    ...(arena.isDemo || !indexingOn() ? { robots: { index: false, follow: false } } : {}),
+    // Only arenas the site admin marked as real, and only on the real domain.
+    ...((await listedOnGoogle(arena.slug, arena.isDemo)) ? {} : { robots: { index: false, follow: false } }),
   };
 }
 
@@ -106,7 +114,7 @@ export default async function ArenaPage({ params }: Params) {
 
   return (
     <>
-      {!arena.isDemo && indexingOn() && (
+      {(await listedOnGoogle(arena.slug, arena.isDemo)) && (
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }} />
       )}
       <SiteHeader locale={locale} user={user} path={path} />

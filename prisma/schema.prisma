@@ -150,6 +150,8 @@ model Cafe {
   /// Arena logo (square). Empty = the site shows the arena's initial.
   logoImage      String?
   isPublished    Boolean        @default(true)
+  /// Shown to search engines (site admin's choice; off until the arena is real).
+  searchVisible  Boolean        @default(false)
   isDemo         Boolean        @default(false)
   createdAt      DateTime       @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime       @updatedAt @db.Timestamptz(3)

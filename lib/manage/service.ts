@@ -266,6 +266,7 @@ export async function getManageData(cafeId: string, viewer: { role: 'OWNER' | 'S
     ),
     games: { selected: cafe.games.map((g) => g.game.slug), catalogue },
     isPublished: cafe.isPublished,
+    searchVisible: cafe.searchVisible,
     posts: cafe.sections,
     offers: cafe.offers.map((o) => ({ ...o, kind: o.kind as OfferKind, price: o.price.toFixed(0) })),
     players: ownerView ? await arenaPlayers(cafeId) : [],
@@ -640,6 +641,11 @@ export async function runAction(
     case 'removeEntry': {
       await prisma.tournamentEntry.deleteMany({ where: { tournamentId: input.id, userId: input.userId, tournament: { cafeId } } });
       await audit({ tournament: input.id, player: input.userId });
+      return { ok: true };
+    }
+    case 'setSearchVisible': {
+      await prisma.cafe.update({ where: { id: cafeId }, data: { searchVisible: input.on } });
+      await audit({ searchVisible: input.on });
       return { ok: true };
     }
     case 'hideReview': {

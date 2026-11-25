@@ -260,6 +260,9 @@ const ar = {
     } as Record<string, string>,
   },
   bookings: {
+    prev: 'الصفحة السابقة',
+    next: 'الصفحة التالية',
+    pageOf: (a: number, b: number) => `${a} من ${b}`,
     title: 'حجوزاتي',
     empty: 'لا حجوزات بعد. اختر جهازاً فاضياً من أي صالة واحجزه.',
     cancel: 'إلغاء الحجز',
@@ -638,6 +641,9 @@ const en: Dict = {
     } as Record<string, string>,
   },
   bookings: {
+    prev: 'Previous page',
+    next: 'Next page',
+    pageOf: (a: number, b: number) => `${a} of ${b}`,
     title: 'My bookings',
     empty: 'No bookings yet. Pick a free station in any arena and book it.',
     cancel: 'Cancel booking',

@@ -291,7 +291,9 @@ if [ -z "$NO_DOCKER" ]; then
       ok "backup written: $latest"
       echo 'DROP DATABASE IF EXISTS restore_test;' | psql_db postgres >/dev/null 2>&1
       echo 'CREATE DATABASE restore_test;' | psql_db postgres >/dev/null 2>&1
-      docker compose exec -T postgres pg_restore -U "$DB_USER" -d restore_test --no-owner < "$latest" >/dev/null 2>&1
+      # Dumps are private to the container user (umask 077), so read it inside the container.
+      docker compose exec -T db-backup cat "/backups/$(basename "$latest")" \
+        | docker compose exec -T postgres pg_restore -U "$DB_USER" -d restore_test --no-owner >/dev/null 2>&1
       live="$(echo 'SELECT count(*) FROM "Device";' | sql)"
       n="$(echo 'SELECT count(*) FROM "Device";' | psql_db restore_test 2>&1)"
       [ "$n" = "$live" ] && ok "restored copy has all $n PCs" || bad "restored copy has '$n' PCs (live database has $live)"

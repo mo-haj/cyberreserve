@@ -423,6 +423,22 @@ export function Access({ m, data, action }: { m: ManageText; data: ManageData; a
         >
           {data.isPublished ? m.hide : m.publish}
         </button>
+        <div className="border-t border-line pt-4">
+          <h3 className="font-display text-base font-bold text-ink">{m.googleTitle}</h3>
+          <p className="mt-1 text-xs text-muted">{m.googleHint}</p>
+          <p className={`mt-2 flex items-center gap-2 text-sm ${data.searchVisible ? 'text-free' : 'text-muted'}`}>
+            <span className={`h-2.5 w-2.5 ${data.searchVisible ? 'bg-free' : 'bg-off'}`} aria-hidden="true" />
+            {data.searchVisible ? m.googleOn : m.googleOff}
+          </p>
+          <button
+            type="button"
+            className={`mt-2 ${data.searchVisible ? 'btn-ghost' : 'btn-neon'}`}
+            disabled={!!action.busy}
+            onClick={() => action.run('google', { action: 'setSearchVisible', on: !data.searchVisible })}
+          >
+            {data.searchVisible ? m.googleHide : m.googleShow}
+          </button>
+        </div>
       </section>
 
       <section className="hud space-y-4 p-5 sm:p-6">
