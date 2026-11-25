@@ -9,6 +9,81 @@ import { cityName } from '@/lib/cities';
 import { pick, type Locale } from '@/lib/i18n';
 import { manageText, type ManageText } from '@/lib/i18n-manage';
 import { slugify } from '@/lib/manage/rules';
+import type { JoinView } from '@/lib/join';
+
+type JoinRow = JoinView & { who: string; phone: string };
+
+/** Join requests: approve (creates the hidden arena, requester = owner) or decline. */
+function Requests({ locale, m, initial }: { locale: Locale; m: ManageText; initial: JoinRow[] }) {
+  const router = useRouter();
+  const [list, setList] = useState(initial);
+  const [busy, setBusy] = useState<string | null>(null);
+  async function decide(r: JoinRow, decision: 'approve' | 'decline') {
+    const reason = decision === 'decline' ? window.prompt(m.reqReason) : '';
+    if (reason === null) return;
+    setBusy(r.id);
+    const res = await fetch(`/api/admin/requests/${r.id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(decision === 'approve' ? { decision } : { decision, reason }),
+    }).catch(() => null);
+    setBusy(null);
+    if (!res?.ok) return;
+    const j = await res.json().catch(() => ({}));
+    setList((l) => l.map((x) => (x.id === r.id ? { ...x, status: decision === 'approve' ? 'APPROVED' : 'DECLINED', cafeSlug: j.slug ?? null } : x)));
+    router.refresh();
+  }
+  const pending = list.filter((r) => r.status === 'PENDING').length;
+  return (
+    <section id="requests" className="hud scroll-mt-6 p-5 sm:p-6">
+      <h2 className="font-display text-xl font-bold text-ink">
+        {m.reqTitle} {pending > 0 && <span className="ms-2 bg-amber-400/20 px-2 py-0.5 font-hud text-sm text-amber-300">{pending}</span>}
+      </h2>
+      <ul className="mt-4 space-y-2">
+        {list.map((r) => (
+          <li key={r.id} className={`flex flex-wrap items-center gap-x-5 gap-y-2 bg-panel2/50 px-4 py-3 text-sm ${r.status === 'PENDING' ? '' : 'opacity-60'}`}>
+            <span className="min-w-0 flex-1 basis-full md:basis-0">
+              <span className="block font-semibold text-ink">
+                {r.nameAr} <span className="font-normal text-muted">({r.nameEn})</span>
+              </span>
+              <span className="block text-muted">
+                {r.area}، {cityName(r.city, locale)} · {r.address} · {m.reqStations(r.stations)}
+                {r.software && ` · ${r.software}`}
+              </span>
+              {r.note && <span className="block text-muted">«{r.note}»</span>}
+            </span>
+            <span className="text-muted">
+              <bdi className="text-ink">{r.who}</bdi>{' '}
+              <bdi dir="ltr" className="font-hud">
+                {r.phone}
+              </bdi>
+            </span>
+            {r.status === 'PENDING' ? (
+              <span className="flex gap-2">
+                <button type="button" className="btn-neon text-sm" disabled={busy === r.id} onClick={() => decide(r, 'approve')}>
+                  {m.reqApprove}
+                </button>
+                <button type="button" className="btn-ghost text-sm" disabled={busy === r.id} onClick={() => decide(r, 'decline')}>
+                  {m.reqDecline}
+                </button>
+              </span>
+            ) : r.status === 'APPROVED' ? (
+              r.cafeSlug ? (
+                <Link href={`/admin/${r.cafeSlug}`} className="text-free hover:underline">
+                  {m.reqApproved} ›
+                </Link>
+              ) : (
+                <span className="text-free">{m.reqApproved}</span>
+              )
+            ) : (
+              <span className="text-busy">{m.reqDeclined}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 export interface AdminArena {
   slug: string;
@@ -27,16 +102,20 @@ export default function AdminHome({
   locale,
   superAdmin,
   arenas,
+  requests = [],
 }: {
   locale: Locale;
   superAdmin: boolean;
   arenas: AdminArena[];
+  /** Site admin: arena owners asking to join (/join). */
+  requests?: JoinRow[];
 }) {
   const m = manageText(locale);
   const [adding, setAdding] = useState(false);
 
   return (
     <div className="space-y-6">
+      {superAdmin && requests.length > 0 && <Requests locale={locale} m={m} initial={requests} />}
       <div className="flex flex-wrap items-end justify-between gap-4 pt-2">
         <div>
           {superAdmin && (

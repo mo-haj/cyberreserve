@@ -5,12 +5,19 @@ import { ArenaRole, BookingStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { now } from '@/lib/time';
 import { randomUUID } from 'node:crypto';
-import type { OfferKind } from '@/lib/booking/rules';
+import { BOOKING, type OfferKind } from '@/lib/booking/rules';
 import { canDo, parseLatLng, slugify, type ManageAction, type NewArena } from '@/lib/manage/rules';
 import { GENRES } from '@/prisma/games-data';
 import { normalizePhone } from '@/lib/telegram/logic';
 import { arenaBookings, banPlayer, markByArena, unbanPlayer } from '@/lib/booking/service';
 import { GROUP_SELECT } from '@/lib/cafes';
+import { endShift, logArena, openShift, startShift } from '@/lib/activity';
+import { ownerTournaments, setReviewHidden, tellFollowers } from '@/lib/engage';
+import { ENGAGE_TEXT, whenText } from '@/lib/engage-texts';
+import { background } from '@/lib/background';
+import { offerLabel } from '@/lib/offers';
+import { parseHHMM, toHHMM } from '@/lib/hours';
+import { fromDamascusParts } from '@/lib/time';
 import type { GroupView } from '@/lib/groups';
 
 export interface Membership {
@@ -172,7 +179,13 @@ async function arenaPlayers(cafeId: string): Promise<ManagePlayer[]> {
   });
 }
 
-export async function getManageData(cafeId: string) {
+/**
+ * Everything the dashboard shows. What a person gets depends on their role:
+ * staff run the floor and see no player directory; only the site admin sees
+ * the arena's owners and staff with their phone numbers.
+ */
+export async function getManageData(cafeId: string, viewer: { role: 'OWNER' | 'STAFF'; superAdmin?: boolean; userId: string }) {
+  const ownerView = viewer.role === 'OWNER' || !!viewer.superAdmin;
   const at = now();
   const cafe = await prisma.cafe.findUniqueOrThrow({
     where: { id: cafeId },
@@ -243,6 +256,8 @@ export async function getManageData(cafeId: string) {
       hourlyRate: cafe.hourlyRate.toFixed(0),
       nightShiftRate: cafe.nightShiftRate.toFixed(0),
       location: cafe.latitude != null && cafe.longitude != null ? `${cafe.latitude}, ${cafe.longitude}` : '',
+      openTime: cafe.openMin != null ? toHHMM(cafe.openMin) : '',
+      closeTime: cafe.closeMin != null ? toHHMM(cafe.closeMin) : '',
     },
     images: { logo: cafe.logoImage, cover: cafe.coverImage },
     stations,
@@ -253,8 +268,11 @@ export async function getManageData(cafeId: string) {
     isPublished: cafe.isPublished,
     posts: cafe.sections,
     offers: cafe.offers.map((o) => ({ ...o, kind: o.kind as OfferKind, price: o.price.toFixed(0) })),
-    players: await arenaPlayers(cafeId),
-    members: cafe.members.map((m) => ({
+    players: ownerView ? await arenaPlayers(cafeId) : [],
+    tournaments: ownerView ? await ownerTournaments(cafeId) : [],
+    /** The viewer's own open shift here (start time), or null. */
+    myShift: (await openShift(cafeId, viewer.userId))?.startedAt.toISOString() ?? null,
+    members: (viewer.superAdmin ? cafe.members : []).map((m) => ({
       userId: m.user.id,
       role: m.role,
       name: m.user.nickname ?? m.user.fullName ?? m.user.name,
@@ -279,6 +297,8 @@ export type ActionError =
   | 'bad_location'
   | 'too_many'
   | 'too_many_offers'
+  | 'too_early'
+  | 'too_long'
   | 'bad_percent'
   | 'too_late'
   | 'bad_group'
@@ -286,6 +306,13 @@ export type ActionError =
   | 'next_booking'
   | 'bad_phone'
   | 'no_such_player';
+
+/** Both times set -> minutes; anything else -> not set. */
+function hoursFrom(open: string, close: string): { openMin: number | null; closeMin: number | null } {
+  const o = open ? parseHHMM(open) : null;
+  const c = close ? parseHHMM(close) : null;
+  return o != null && c != null ? { openMin: o, closeMin: c } : { openMin: null, closeMin: null };
+}
 
 const fail = (error: ActionError, status = 400): ActionResult => ({ ok: false, error, status });
 const priceOrNull = (v: string | undefined) => (v ? new Prisma.Decimal(v) : null);
@@ -313,9 +340,7 @@ export async function runAction(
   const { cafeId } = member;
 
   const audit = (details: Prisma.InputJsonValue) =>
-    prisma.auditLog.create({
-      data: { actorType: member.superAdmin ? 'ADMIN' : 'OWNER', userId, action: `manage.${input.action}`, details: { arena: member.slug, ...(details as object) } },
-    });
+    logArena({ cafeId, userId, actor: member.superAdmin ? 'ADMIN' : member.role, action: `manage.${input.action}`, details });
 
   switch (input.action) {
     case 'walkIn': {
@@ -343,6 +368,11 @@ export async function runAction(
       await audit({ pcNumber: input.pcNumber, minutes: input.minutes });
       return { ok: true };
     }
+    case 'shift': {
+      if (input.on) await startShift(cafeId, userId);
+      else await endShift(cafeId, userId);
+      return { ok: true };
+    }
     case 'freeNow': {
       const d = await station(cafeId, input.pcNumber);
       if (!d) return fail('not_found', 404);
@@ -360,9 +390,11 @@ export async function runAction(
       if (!d) return fail('not_found', 404);
       const now = await prisma.booking.findFirst({
         where: { deviceId: d.id, status: { in: HOLDING }, startTime: { lte: at }, endTime: { gt: at } },
-        select: { id: true, endTime: true },
+        select: { id: true, startTime: true, endTime: true },
       });
       if (!now) return fail('not_busy', 409);
+      // A session never runs past the 12-hour maximum.
+      if (now.endTime.getTime() + input.minutes * 60_000 - now.startTime.getTime() > BOOKING.maxMinutes * 60_000) return fail('too_long', 409);
       try {
         await prisma.booking.update({ where: { id: now.id }, data: { endTime: new Date(now.endTime.getTime() + input.minutes * 60_000) } });
       } catch (err) {
@@ -377,10 +409,11 @@ export async function runAction(
       // Bans are for owners; staff can still cancel with a reason.
       if (input.ban && member.role !== 'OWNER' && !member.superAdmin) return fail('forbidden', 403);
       const r = await markByArena(userId, input.bookingId, input.mark, {
+        cafeId,
         reason: input.reason,
         ban: input.ban ? { until: input.ban.minutes === null ? null : new Date(now().getTime() + input.ban.minutes * 60_000), reason: input.ban.reason } : undefined,
       });
-      if (!r.ok) return fail(r.error === 'not_allowed' ? 'forbidden' : 'too_late', r.error === 'not_allowed' ? 403 : 409);
+      if (!r.ok) return fail(r.error === 'not_allowed' ? 'forbidden' : r.error, r.error === 'not_allowed' ? 403 : 409);
       return { ok: true };
     }
     case 'maintenance': {
@@ -478,6 +511,7 @@ export async function runAction(
           nightShiftRate: new Prisma.Decimal(input.nightShiftRate),
           latitude: pin?.lat ?? null,
           longitude: pin?.lng ?? null,
+          ...hoursFrom(input.openTime, input.closeTime),
         },
       });
       await audit({ fields: 'arena' });
@@ -561,8 +595,56 @@ export async function runAction(
       } else {
         if ((await prisma.arenaOffer.count({ where: { cafeId } })) >= 20) return fail('too_many_offers', 409);
         await prisma.arenaOffer.create({ data: { cafeId, ...data } });
+        // Followers hear about new offers.
+        const label = { hours: rest.hours, kind: rest.kind, price: Number(price) };
+        background('offer followers', () =>
+          tellFollowers(cafeId, (lang, arena) => {
+            const l = offerLabel(label, lang);
+            return ENGAGE_TEXT[lang].newOffer(arena, `${l.deal} (${l.when})${(lang === 'ar' ? rest.noteAr : rest.noteEn) ? `\n${lang === 'ar' ? rest.noteAr : rest.noteEn}` : ''}`);
+          }),
+        );
       }
       await audit({ offer: id ?? 'new', hours: rest.hours, price });
+      return { ok: true };
+    }
+    case 'saveTournament': {
+      const { action: _a, id, startsAt, fee, ...rest } = input;
+      void _a;
+      const [d, t] = startsAt.split('T');
+      const [y, mo, da] = d.split('-').map(Number);
+      const [h, mi] = t.split(':').map(Number);
+      const when = fromDamascusParts({ year: y, month: mo, day: da, hour: h, minute: mi });
+      if (Number.isNaN(when.getTime()) || when <= at) return fail('too_late');
+      const data = { ...rest, startsAt: when, fee: new Prisma.Decimal(fee) };
+      if (id) {
+        const done = await prisma.tournament.updateMany({ where: { id, cafeId }, data });
+        if (done.count === 0) return fail('not_found', 404);
+      } else {
+        if ((await prisma.tournament.count({ where: { cafeId, startsAt: { gt: at } } })) >= 10) return fail('too_many', 409);
+        await prisma.tournament.create({ data: { cafeId, ...data } });
+        background('tournament followers', () =>
+          tellFollowers(cafeId, (lang, arena) =>
+            ENGAGE_TEXT[lang].newTournament(arena, lang === 'ar' ? rest.titleAr : rest.titleEn, rest.game, whenText(lang, when.toISOString()), lang === 'ar' ? rest.prizeAr : rest.prizeEn),
+          ),
+        );
+      }
+      await audit({ tournament: id ?? 'new', title: rest.titleAr });
+      return { ok: true };
+    }
+    case 'removeTournament': {
+      const done = await prisma.tournament.deleteMany({ where: { id: input.id, cafeId } });
+      if (done.count === 0) return fail('not_found', 404);
+      await audit({ tournament: input.id });
+      return { ok: true };
+    }
+    case 'removeEntry': {
+      await prisma.tournamentEntry.deleteMany({ where: { tournamentId: input.id, userId: input.userId, tournament: { cafeId } } });
+      await audit({ tournament: input.id, player: input.userId });
+      return { ok: true };
+    }
+    case 'hideReview': {
+      if (!(await setReviewHidden(cafeId, input.id, input.hidden))) return fail('not_found', 404);
+      await audit({ review: input.id, hidden: input.hidden });
       return { ok: true };
     }
     case 'removeOffer': {
@@ -666,6 +748,25 @@ export async function runAction(
         ).id;
       await prisma.cafeGame.upsert({ where: { cafeId_gameId: { cafeId, gameId: id } }, create: { cafeId, gameId: id }, update: {} });
       await audit({ game: name, existing: !!same });
+      return { ok: true };
+    }
+    case 'promoteGame': {
+      const game = await prisma.game.findFirst({ where: { slug: input.slug, ownerCafeId: cafeId }, select: { id: true, name: true } });
+      if (!game) return fail('not_found', 404);
+      const twin = await prisma.game.findFirst({ where: { ownerCafeId: null, name: { equals: game.name, mode: 'insensitive' } }, select: { id: true } });
+      if (twin) {
+        // Already in the shared list under the same name: keep that one, move this arena over.
+        await prisma.$transaction([
+          prisma.cafeGame.deleteMany({ where: { gameId: game.id, cafeId: { in: (await prisma.cafeGame.findMany({ where: { gameId: twin.id }, select: { cafeId: true } })).map((c) => c.cafeId) } } }),
+          prisma.cafeGame.updateMany({ where: { gameId: game.id }, data: { gameId: twin.id } }),
+          prisma.arenaImage.deleteMany({ where: { cafeId, kind: `game:${game.id}` } }),
+          prisma.game.delete({ where: { id: game.id } }),
+        ]);
+      } else {
+        // Keep the slug (links keep working); the photo stays where it is.
+        await prisma.game.update({ where: { id: game.id }, data: { ownerCafeId: null } });
+      }
+      await audit({ game: game.name, promoted: true, merged: !!twin });
       return { ok: true };
     }
     case 'removeGame': {

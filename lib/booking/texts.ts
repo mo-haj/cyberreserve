@@ -20,6 +20,19 @@ export interface BookingFacts {
   station: string;
   when: string;
   price: string;
+  /** The offer that gave this price, e.g. "120 SYP / hour (when you play 5 hours or more)". */
+  deal?: string;
+  /** The price without the offer. */
+  normal?: string;
+}
+
+/** "💵 600 ل.س" or, with an offer, the normal price, the offer and the saving. */
+function priceLines(f: BookingFacts, lang: BotLang, note: string): string {
+  const cur = lang === 'ar' ? 'ل.س' : 'SYP';
+  if (!f.deal || !f.normal) return `💵 ${f.price} ${cur}${note}`;
+  return lang === 'ar'
+    ? `💵 ${f.price} ${cur}${note} بدل ${f.normal}\n🏷 عرض: ${f.deal}`
+    : `💵 ${f.price} ${cur}${note} instead of ${f.normal}\n🏷 Offer: ${f.deal}`;
 }
 
 /** Ready-made reasons an arena can give when it cancels a booking. */
@@ -51,7 +64,7 @@ export function banUntilText(until: Date | null, lang: BotLang): string {
 export const BOOKING_TEXT = {
   ar: {
     confirmed: (f: BookingFacts, askAt: string | null) =>
-      `✅ تم الحجز\n\n🏟 ${f.arena}\n🎮 ${f.station}\n🗓 ${f.when}\n💵 ${f.price} ل.س (تُدفع في الصالة)\n\n` +
+      `✅ تم الحجز\n\n🏟 ${f.arena}\n🎮 ${f.station}\n🗓 ${f.when}\n${priceLines(f, 'ar', ' (تُدفع في الصالة)')}\n\n` +
       (askAt ? `⏰ الساعة ${askAt} سأسألك هنا إن كنت قادماً. إذا لم تجب قبل 15 دقيقة من بداية الحجز يُلغى تلقائياً.\n\n` : '') +
       `لا تستطيع الحضور؟ ألغِ الحجز ليأخذ غيرك الجهاز.`,
     cancelButton: '❌ إلغاء الحجز',
@@ -81,7 +94,7 @@ export const BOOKING_TEXT = {
   },
   en: {
     confirmed: (f: BookingFacts, askAt: string | null) =>
-      `✅ Booked\n\n🏟 ${f.arena}\n🎮 ${f.station}\n🗓 ${f.when}\n💵 ${f.price} SYP (pay at the arena)\n\n` +
+      `✅ Booked\n\n🏟 ${f.arena}\n🎮 ${f.station}\n🗓 ${f.when}\n${priceLines(f, 'en', ' (pay at the arena)')}\n\n` +
       (askAt ? `⏰ At ${askAt} I'll ask here whether you are coming. With no answer 15 minutes before the start, the booking is cancelled.\n\n` : '') +
       `Can't make it? Cancel so someone else can play.`,
     cancelButton: '❌ Cancel booking',
@@ -114,7 +127,7 @@ export const BOOKING_TEXT = {
 /** Messages to arena owners and staff (Arabic: arenas are in Syria). */
 export const ARENA_TEXT = {
   newBooking: (f: BookingFacts, player: string, phone: string, city: string) =>
-    `🎮 حجز جديد\n\n👤 ${player}\n📱 \u2066${phone}\u2069\n🏙 ${city}\n🎮 ${f.station}\n🗓 ${f.when}\n💵 ${f.price} ل.س`,
+    `🎮 حجز جديد\n\n👤 ${player}\n📱 \u2066${phone}\u2069\n🏙 ${city}\n🎮 ${f.station}\n🗓 ${f.when}\n${priceLines(f, 'ar', '')}`,
   playerCancelled: (f: BookingFacts, player: string) => `↩️ ألغى ${player} حجزه: ${f.station}، ${f.when}. الجهاز متاح الآن.`,
   autoCancelled: (f: BookingFacts, player: string) =>
     `⌛ أُلغي حجز ${player} تلقائياً (لم يؤكد حضوره): ${f.station}، ${f.when}. الجهاز متاح الآن.`,
@@ -129,6 +142,11 @@ export const ARENA_TEXT = {
   reasonOther: '✍️ سبب آخر (أكتبه)',
   reasonNone: 'بدون سبب',
   typeReason: '✍️ اكتب سبب الإلغاء في رسالة واحدة (خلال 10 دقائق):',
+  confirmReason: (reason: string) => `هل تلغي الحجز بهذا السبب؟\n\n📝 «${reason}»\n\nسيصل للاعب مع اعتذار.`,
+  confirmYes: '✅ نعم، ألغِ الحجز',
+  confirmNo: '↩️ لا، أبقِ الحجز',
+  keptBooking: '👍 لم يُلغَ الحجز.',
+  tooEarly: '⏳ «لم يحضر» تُسجَّل بعد 15 دقيقة من بداية الحجز.',
   headCancelled: (reason: string) => `❌ أُلغي الحجز${reason ? `\nالسبب: ${reason}` : ''}`,
   headPlayerCancelled: '↩️ ألغى اللاعب الحجز',
   headAutoCancelled: '⌛ أُلغي تلقائياً (لم يؤكد حضوره)',

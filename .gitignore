@@ -25,3 +25,6 @@ docs/
 
 # Business plan: private, never in the repository
 PLAN.md
+
+# Output of get-logs.bat (may hold personal data)
+logs.txt

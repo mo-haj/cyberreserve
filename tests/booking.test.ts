@@ -95,3 +95,14 @@ test('cancel reasons and stop texts read well in both languages', async () => {
   assert.match(msg, /https:\/\/x\.test\/arenas\/secret/);
   assert.doesNotMatch(BOOKING_TEXT.ar.cancelledByArena(f, '', null), /السبب/, 'no reason line when none was given');
 });
+
+test('bot booking message shows the offer and the normal price', async () => {
+  const { BOOKING_TEXT, ARENA_TEXT } = await import('../lib/booking/texts');
+  const f = { arena: 'Secret Shop', station: 'PC 3', when: 'Sat 21/11, 18:00–23:00', price: '600', deal: '120 SYP / hour (when you play 5 hours or more)', normal: '750' };
+  const en = BOOKING_TEXT.en.confirmed(f, null);
+  assert.match(en, /600 SYP \(pay at the arena\) instead of 750/);
+  assert.match(en, /🏷 Offer: 120 SYP \/ hour/);
+  assert.match(ARENA_TEXT.newBooking(f, 'Sara', '+963', 'Damascus'), /🏷 عرض: /);
+  const plain = BOOKING_TEXT.ar.confirmed({ ...f, deal: undefined, normal: undefined }, null);
+  assert.doesNotMatch(plain, /عرض|بدل/, 'no offer lines without an offer');
+});

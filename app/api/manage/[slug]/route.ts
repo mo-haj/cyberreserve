@@ -5,6 +5,8 @@ import { ManageAction } from '@/lib/manage/rules';
 import { getManageData, getMembership, runAction } from '@/lib/manage/service';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { now } from '@/lib/time';
+import { arenaActivity } from '@/lib/activity';
+import { arenaStats } from '@/lib/engage';
 
 // Arena dashboard API. Signed-in arena members reach only their own arena
 // (staff only the live-floor actions); the super admin reaches every arena
@@ -22,10 +24,16 @@ async function member(slug: string) {
   return m ? { user, m } : null;
 }
 
-export async function GET(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
   const found = await member((await params).slug);
   if (!found) return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
-  return NextResponse.json(await getManageData(found.m.cafeId), { headers: NO_STORE });
+  // ?activity=1: the activity tab (owners and the site admin only), loaded when opened.
+  const q = new URL(request.url).searchParams;
+  if (q.get('activity') === '1' || q.get('stats') === '1') {
+    if (found.m.role !== 'OWNER' && !found.m.superAdmin) return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
+    return NextResponse.json(q.get('stats') === '1' ? await arenaStats(found.m.cafeId) : await arenaActivity(found.m.cafeId), { headers: NO_STORE });
+  }
+  return NextResponse.json(await getManageData(found.m.cafeId, { ...found.m, userId: found.user.id }), { headers: NO_STORE });
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ slug: string }> }) {
@@ -46,7 +54,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   try {
     const result = await runAction(found.m, found.user.id, parsed.data);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status, headers: NO_STORE });
-    return NextResponse.json({ ok: true, data: await getManageData(found.m.cafeId) }, { headers: NO_STORE });
+    return NextResponse.json({ ok: true, data: await getManageData(found.m.cafeId, { ...found.m, userId: found.user.id }) }, { headers: NO_STORE });
   } catch (err) {
     console.error('[api/manage] failed:', err instanceof Error ? err.message : err);
     return NextResponse.json({ error: 'generic' }, { status: 503, headers: NO_STORE });

@@ -27,7 +27,8 @@ export function middleware(request: NextRequest) {
   }
 
   if (request.cookies.get('cr_session')?.value) return NextResponse.next();
-  const proto = request.headers.get('x-forwarded-proto') ?? request.nextUrl.protocol.replace(':', '');
   const next = path.startsWith('/manage') ? path.replace(/^\/manage/, '/admin') : path;
-  return NextResponse.redirect(new URL(`${proto}://${host}/login?next=${encodeURIComponent(next)}`));
+  // A relative Location: the browser stays on the host it asked for, and a
+  // forged X-Forwarded-Host can never send the visitor to another site.
+  return new NextResponse(null, { status: 307, headers: { Location: `/login?next=${encodeURIComponent(next)}` } });
 }

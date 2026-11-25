@@ -109,7 +109,7 @@ export default function ProfileForm({
           />
           <span
             id="fullName-hint"
-            className="mt-1 block text-center text-[11px] leading-snug text-muted"
+            className="mt-1 block text-center text-[0.6875rem] leading-snug text-muted"
           >
             {t.profile.fullNameHint}
           </span>
@@ -133,7 +133,7 @@ export default function ProfileForm({
           />
           <span
             id="nickname-hint"
-            className="mt-1 block text-center text-[11px] leading-snug text-muted"
+            className="mt-1 block text-center text-[0.6875rem] leading-snug text-muted"
           >
             {t.profile.nicknameHint}
           </span>
@@ -156,7 +156,7 @@ export default function ProfileForm({
         </div>
         <span
           id="city-hint"
-          className="mt-1 block text-center text-[11px] leading-snug text-muted"
+          className="mt-1 block text-center text-[0.6875rem] leading-snug text-muted"
         >
           {t.profile.cityHint}
         </span>

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
 import { dictionary, dirOf } from '@/lib/i18n';
 import { getLocale } from '@/lib/locale';
+import { indexingOn, siteUrl } from '@/lib/site';
 import './globals.css';
 
 // Fonts are bundled with the app (app/fonts, SIL Open Font License), so
@@ -46,9 +47,16 @@ const hud = localFont({
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = dictionary(await getLocale());
+  const site = siteUrl();
   return {
+    ...(site ? { metadataBase: new URL(site) } : {}),
     title: { default: t.meta.title, template: `%s — CyberReserve` },
     description: t.meta.description,
+    applicationName: 'CyberReserve',
+    openGraph: { type: 'website', siteName: 'CyberReserve', title: t.meta.title, description: t.meta.description, locale: 'ar_SY', alternateLocale: ['en_US'] },
+    alternates: { canonical: '/' },
+    // Hidden from search engines until ALLOW_INDEXING=1 (launch with real arenas).
+    ...(indexingOn() ? {} : { robots: { index: false, follow: false } }),
   };
 }
 

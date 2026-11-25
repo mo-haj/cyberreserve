@@ -5,6 +5,8 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { BookingStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { ratings } from '@/lib/engage';
+import { hoursLabel, isOpenAt } from '@/lib/hours';
 import { now } from '@/lib/time';
 import { isPreview } from '@/lib/preview';
 import {
@@ -46,6 +48,15 @@ export interface CafeSummary {
   /** Uploaded logo, or null. */
   logoImage: string | null;
   isDemo: boolean;
+  /** Map pin, or null (used for "near me" sorting). */
+  latitude: number | null;
+  longitude: number | null;
+  /** Open right now by the arena's hours; null = hours not set. */
+  openNow: boolean | null;
+  /** "10:00–02:00" or "24h"; '' = not set. */
+  openHours: string;
+  /** Players' average stars, or null before the first rating. */
+  rating: { avg: number; count: number } | null;
   counts: StatusCounts;
   /** Games this arena offers, A to Z. */
   games: GameView[];
@@ -208,6 +219,7 @@ export async function listCafes(): Promise<CafeSummary[]> {
     orderBy: [{ isDemo: 'asc' }, { createdAt: 'asc' }, { slug: 'asc' }],
     include: { devices: deviceQuery(at), games: gamesQuery, offers: { orderBy: [{ hours: 'asc' }, { createdAt: 'asc' }] } },
   });
+  const stars = await ratings(cafes.map((c) => c.id));
   return cafes.map((c) => {
     const pcs = viewsFrom(c.devices, c, at);
     return {
@@ -224,6 +236,11 @@ export async function listCafes(): Promise<CafeSummary[]> {
       coverImage: c.coverImage,
       logoImage: c.logoImage,
       isDemo: c.isDemo,
+      latitude: c.latitude,
+      longitude: c.longitude,
+      openNow: isOpenAt(c.openMin, c.closeMin, at),
+      openHours: hoursLabel(c.openMin, c.closeMin),
+      rating: stars.get(c.id) ?? null,
       counts: countStatuses(pcs),
       games: gamesFrom(c.games),
       types: countByType(pcs),
@@ -252,6 +269,9 @@ export async function getCafe(slug: string): Promise<CafeDetail | null> {
   if (!c) return null;
   const pcs = viewsFrom(c.devices, c, at);
   return {
+    openNow: isOpenAt(c.openMin, c.closeMin, at),
+    openHours: hoursLabel(c.openMin, c.closeMin),
+    rating: (await ratings([c.id])).get(c.id) ?? null,
     slug: c.slug,
     nameEn: c.nameEn,
     nameAr: c.nameAr,
@@ -320,6 +340,11 @@ function toSummary(c: CafeDetail): CafeSummary {
     coverImage: c.coverImage,
     logoImage: c.logoImage,
     isDemo: c.isDemo,
+    latitude: c.latitude,
+    longitude: c.longitude,
+    openNow: null,
+    openHours: '',
+    rating: null,
     counts: c.counts,
     games: c.games,
     types: c.types,
@@ -372,6 +397,9 @@ function fixtureCafes(): CafeDetail[] {
       isDemo: true,
       addressEn: d.addressEn,
       addressAr: d.addressAr,
+      openNow: null,
+      openHours: '',
+      rating: null,
       latitude: d.latitude,
       longitude: d.longitude,
       hoursEn: d.hoursEn,

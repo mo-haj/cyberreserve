@@ -94,14 +94,14 @@ export default async function ProfilePage({
               <dd dir="ltr" className="mt-0.5 font-hud text-base text-ink">
                 {maskPhone(me.phone)}
               </dd>
-              <dd className="mt-0.5 text-[11px] leading-snug text-muted">{t.profile.phoneHint}</dd>
+              <dd className="mt-0.5 text-[0.6875rem] leading-snug text-muted">{t.profile.phoneHint}</dd>
             </div>
             <div className="bg-void/60 px-3 py-2.5">
               <dt className="text-xs text-muted">{t.profile.telegram}</dt>
               <dd className="mt-0.5 text-base text-ink">
                 <bdi>{me.name}</bdi>
               </dd>
-              <dd className="mt-0.5 text-[11px] text-muted">
+              <dd className="mt-0.5 text-[0.6875rem] text-muted">
                 {t.profile.memberSince}{' '}
                 <span dir="ltr" className="font-hud">
                   {formatDamascusDate(me.createdAt)}

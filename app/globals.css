@@ -7,6 +7,10 @@
 }
 
 html {
+  /* Large screens (1440p, 4K): everything sized in rem grows with the screen,
+     so text and cards are not tiny. 16px up to 1600px wide, 20px at 2560px,
+     at most 24px. Percent keeps the browser's own font-size setting. */
+  font-size: clamp(100%, 0.4167vw + 9.333px, 150%);
   scroll-behavior: smooth;
   background: #05060f;
   /* Keep the scrollbar's space even when a pop-up locks scrolling, so the
@@ -627,6 +631,27 @@ html:has(.cr-modal[open]) {
 }
 @media (prefers-reduced-motion: reduce) {
   .alert-pop {
+    animation: none;
+  }
+}
+
+/* A booking that just came in: glows until 30 s after the list was seen. */
+.booking-new {
+  background-color: rgba(43, 255, 136, 0.07);
+  box-shadow:
+    inset 0 0 0 2px rgba(43, 255, 136, 0.85),
+    0 0 28px -6px rgba(43, 255, 136, 0.7);
+  animation: booking-new-pulse 1.6s ease-in-out infinite;
+}
+@keyframes booking-new-pulse {
+  50% {
+    box-shadow:
+      inset 0 0 0 2px rgba(43, 255, 136, 0.45),
+      0 0 12px -6px rgba(43, 255, 136, 0.4);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .booking-new {
     animation: none;
   }
 }

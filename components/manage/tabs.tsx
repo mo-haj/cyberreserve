@@ -2,7 +2,7 @@
 
 // Dashboard tabs: Players (who booked here), Posts (photo + text on the arena
 // page) and Access (super admin: publish/hide, owners and staff).
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { shrinkImage } from '@/lib/manage/shrink';
 import { Field, IconButton, TextArea } from '@/components/manage/fields';
 import type { Action } from '@/components/manage/ManagePanel';
@@ -13,7 +13,8 @@ import PlayerBadge, { badgeName } from '@/components/PlayerBadge';
 import { BanDialog } from '@/components/manage/moderation';
 import type { ManageText } from '@/lib/i18n-manage';
 import type { ManageData } from '@/lib/manage/service';
-import { formatDamascusDate } from '@/lib/time';
+import type { ActivityRow, ShiftRow } from '@/lib/activity';
+import { formatDamascusDate, formatDamascusTime } from '@/lib/time';
 
 // ------------------------------------------------------------------ players
 
@@ -228,7 +229,7 @@ export function Posts({
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={p.imageUrl} alt="" className="h-16 w-24 shrink-0 object-cover" />
               ) : (
-                <span className="grid h-16 w-24 shrink-0 place-items-center bg-void/60 text-[11px] text-muted">{m.noPhoto}</span>
+                <span className="grid h-16 w-24 shrink-0 place-items-center bg-void/60 text-[0.6875rem] text-muted">{m.noPhoto}</span>
               )}
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold text-ink">{pick(locale, p.titleEn, p.titleAr) || '—'}</p>
@@ -434,7 +435,7 @@ export function Access({ m, data, action }: { m: ManageText; data: ManageData; a
           <ul className="space-y-2">
             {data.members.map((x) => (
               <li key={x.userId} className="flex flex-wrap items-center gap-3 bg-void/50 px-3 py-2">
-                <span className={`px-1.5 py-px text-[11px] font-semibold ${x.role === 'OWNER' ? 'bg-violet/30 text-violet-soft' : 'bg-cyan/15 text-cyan'}`}>
+                <span className={`px-1.5 py-px text-[0.6875rem] font-semibold ${x.role === 'OWNER' ? 'bg-violet/30 text-violet-soft' : 'bg-cyan/15 text-cyan'}`}>
                   {m.role[x.role]}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-ink">
@@ -666,5 +667,290 @@ function OfferForm({
         </div>
       </form>
     </li>
+  );
+}
+
+// ------------------------------------------------------------------ activity
+
+type Row = ActivityRow;
+type ShiftRowT = ShiftRow;
+
+const tone = (a: string) =>
+  a === 'booking.noshow' || a === 'arena.ban' || a === 'booking.cancel'
+    ? 'busy'
+    : a === 'booking.arrived' || a === 'booking.create'
+      ? 'free'
+      : a.startsWith('shift.')
+        ? 'cyan'
+        : 'muted';
+const DOT: Record<string, string> = { busy: 'bg-busy', free: 'bg-free', cyan: 'bg-cyan', muted: 'bg-muted' };
+const TEXT: Record<string, string> = { busy: 'text-busy', free: 'text-free', cyan: 'text-cyan', muted: 'text-ink' };
+
+// Table-style rows: the same columns line up on wide screens, and fold into
+// a small card on phones.
+const LOG_COLS = 'md:grid md:grid-cols-[4.5rem_minmax(0,1.2fr)_minmax(0,1.6fr)_5rem_minmax(0,1.2fr)_minmax(0,1.4fr)] md:items-center md:gap-4';
+const SHIFT_COLS = 'md:grid md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)_6rem_repeat(5,4.5rem)_5rem] md:items-center md:gap-3';
+const head = 'hidden px-4 pb-2 text-xs text-muted md:grid';
+
+function LogHead({ m }: { m: ManageText }) {
+  return (
+    <div className={`${head} ${LOG_COLS}`}>
+      <span>{m.colTime}</span>
+      <span>{m.colWho}</span>
+      <span>{m.colWhat}</span>
+      <span>{m.colStation}</span>
+      <span>{m.colPlayer}</span>
+      <span>{m.colNote}</span>
+    </div>
+  );
+}
+
+function LogRow({ m, r }: { m: ManageText; r: Row }) {
+  const t = tone(r.action);
+  return (
+    <li className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm odd:bg-white/[0.025] ${LOG_COLS}`}>
+      <span className="font-hud text-muted" dir="ltr">
+        {formatDamascusTime(new Date(r.at))}
+      </span>
+      <span className="min-w-0 truncate">
+        <bdi className="font-semibold text-ink">{r.who || m.actorRole[r.actor]}</bdi> <span className="text-xs text-muted">{m.actorRole[r.actor]}</span>
+      </span>
+      <span className={`flex min-w-0 items-center gap-2 ${TEXT[t]}`}>
+        <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[t]}`} aria-hidden="true" />
+        <span className="truncate">{m.act[r.action] ?? m.actOther}</span>
+      </span>
+      <span className="text-muted">{r.pcNumber != null ? m.pcShort(r.pcNumber) : <span className="hidden md:inline">—</span>}</span>
+      <span className="min-w-0 truncate text-muted">{r.player && r.actor !== 'PLAYER' ? <bdi>{r.player}</bdi> : <span className="hidden md:inline">—</span>}</span>
+      <span className="min-w-0 truncate text-muted">
+        {[r.minutes != null ? m.minShort(r.minutes) : '', r.reason ? `«${r.reason}»` : ''].filter(Boolean).join(' · ') || <span className="hidden md:inline">—</span>}
+      </span>
+    </li>
+  );
+}
+
+/** Rows grouped under a heading per day. */
+function DayGroups({ m, rows }: { m: ManageText; rows: Row[] }) {
+  const days: [string, Row[]][] = [];
+  for (const r of rows) {
+    const d = formatDamascusDate(new Date(r.at));
+    const last = days[days.length - 1];
+    if (last && last[0] === d) last[1].push(r);
+    else days.push([d, [r]]);
+  }
+  return (
+    <div className="space-y-4">
+      <LogHead m={m} />
+      {days.map(([d, list]) => (
+        <div key={d}>
+          <h4 className="bg-violet/10 px-4 py-1.5 text-xs font-semibold text-violet-soft">{dayOf(m, list[0].at, true)}</h4>
+          <ol>
+            {list.map((r) => (
+              <LogRow key={r.id} m={m} r={r} />
+            ))}
+          </ol>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Page through a long list, `size` at a time, with back / forward arrows. */
+function usePages<T>(items: T[], size: number) {
+  const [page, setPage] = useState(0);
+  const pages = Math.max(1, Math.ceil(items.length / size));
+  const at = Math.min(page, pages - 1);
+  return { slice: items.slice(at * size, at * size + size), page: at, pages, setPage };
+}
+
+function Pager({ m, page, pages, setPage }: { m: ManageText; page: number; pages: number; setPage: (n: number) => void }) {
+  if (pages <= 1) return null;
+  const btn = 'grid h-9 w-9 place-items-center text-ink shadow-[inset_0_0_0_1px_rgba(157,92,255,0.5)] hover:bg-violet/20 disabled:opacity-30 disabled:hover:bg-transparent';
+  return (
+    <div className="flex items-center justify-center gap-3 pt-3">
+      <button type="button" className={btn} onClick={() => setPage(page - 1)} disabled={page === 0} aria-label={m.pagePrev}>
+        <svg viewBox="0 0 24 24" className="h-4 w-4 rtl:rotate-180" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+          <path d="M15 5l-7 7 7 7" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <span className="font-hud text-sm text-muted">{m.pageOf(page + 1, pages)}</span>
+      <button type="button" className={btn} onClick={() => setPage(page + 1)} disabled={page >= pages - 1} aria-label={m.pageNext}>
+        <svg viewBox="0 0 24 24" className="h-4 w-4 rtl:rotate-180" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+          <path d="M9 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+/** "Today" / "Yesterday" / "11-23" (or the full date). */
+function dayOf(m: ManageText, iso: string, full = false) {
+  const d = formatDamascusDate(new Date(iso));
+  if (d === formatDamascusDate(new Date())) return m.today;
+  if (d === formatDamascusDate(new Date(Date.now() - 86400_000))) return m.yesterday;
+  return full ? d : d.slice(5);
+}
+
+function duration(m: ManageText, from: string, to: string | null) {
+  const mins = Math.max(0, Math.round(((to ? +new Date(to) : Date.now()) - +new Date(from)) / 60_000));
+  return m.lasted(Math.floor(mins / 60), mins % 60);
+}
+
+function ShiftLog({ m, rows }: { m: ManageText; rows: Row[] }) {
+  const p = usePages(rows, 15);
+  if (rows.length === 0) return <p className="py-3 text-sm text-muted">{m.logEmpty}</p>;
+  return (
+    <>
+      <DayGroups m={m} rows={p.slice} />
+      <Pager m={m} {...p} />
+    </>
+  );
+}
+
+function ShiftHead({ m }: { m: ManageText }) {
+  return (
+    <div className={`${head} ${SHIFT_COLS}`}>
+      <span>{m.colWho}</span>
+      <span>{m.colWhen}</span>
+      <span>{m.colLength}</span>
+      <span className="text-center">{m.chipBooked}</span>
+      <span className="text-center">{m.chipArrived}</span>
+      <span className="text-center">{m.chipNoShow}</span>
+      <span className="text-center">{m.chipCancel}</span>
+      <span className="text-center">{m.chipWalkIn}</span>
+      <span />
+    </div>
+  );
+}
+
+/** Who pressed what, in which shift (owners and the site admin). */
+export function Activity({ m, slug }: { m: ManageText; slug: string }) {
+  const [loaded, setLoaded] = useState<{ rows: ActivityRow[]; shifts: ShiftRow[] } | null>(null);
+  // Loaded when the tab opens, refreshed every 30 s while it stays open.
+  useEffect(() => {
+    let stop = false;
+    const load = async () => {
+      const res = await fetch(`/api/manage/${slug}?activity=1`, { cache: 'no-store' }).catch(() => null);
+      if (!stop && res?.ok) setLoaded(await res.json());
+    };
+    void load();
+    const timer = setInterval(() => !document.hidden && load(), 30_000);
+    return () => {
+      stop = true;
+      clearInterval(timer);
+    };
+  }, [slug]);
+  const { rows, shifts } = loaded ?? { rows: [], shifts: [] };
+  const [open, setOpen] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const onNow = shifts.filter((s) => !s.endedAt);
+  const past = shifts.filter((s) => s.endedAt);
+  const pastPages = usePages(past, 10);
+  const logPages = usePages(rows, 15);
+
+  const rowsOf = (s: ShiftRowT) => {
+    const from = +new Date(s.startedAt);
+    const to = s.endedAt ? +new Date(s.endedAt) : Infinity;
+    return rows.filter((r) => r.shiftId === s.id || (r.action === 'booking.create' && +new Date(r.at) >= from && +new Date(r.at) < to));
+  };
+
+  const ShiftItem = ({ s }: { s: ShiftRowT }) => {
+    const isOpen = open === s.id;
+    const cells = [
+      [s.booked, 'text-free', m.chipBooked],
+      [s.arrived, 'text-free', m.chipArrived],
+      [s.noShows, 'text-busy', m.chipNoShow],
+      [s.cancels, 'text-busy', m.chipCancel],
+      [s.walkIns, 'text-cyan', m.chipWalkIn],
+    ] as const;
+    return (
+      <li className={`${isOpen ? 'bg-cyan/[0.06] shadow-[inset_0_0_0_1px_rgba(41,224,255,0.55)]' : 'odd:bg-white/[0.025]'}`}>
+        <button
+          type="button"
+          onClick={() => setOpen(isOpen ? null : s.id)}
+          aria-expanded={isOpen}
+          className={`flex w-full flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-3 text-start text-sm hover:bg-white/5 ${SHIFT_COLS}`}
+        >
+          <span className="min-w-0 basis-full truncate md:basis-auto">
+            <bdi className="font-semibold text-ink">{s.who}</bdi> <span className="text-xs text-muted">{m.actorRole[s.role]}</span>
+          </span>
+          <span className="font-hud text-muted" dir="ltr">
+            {dayOf(m, s.startedAt)} {formatDamascusTime(new Date(s.startedAt))} → {s.endedAt ? formatDamascusTime(new Date(s.endedAt)) : <span className="text-free">{m.shiftNow}</span>}
+          </span>
+          <span className="text-muted">{duration(m, s.startedAt, s.endedAt)}</span>
+          {cells.map(([n, color, label]) => (
+            <span key={label} className={`md:text-center ${n ? '' : 'hidden md:inline'}`}>
+              <b className={`font-hud ${n ? color : 'text-muted/50'}`}>{n}</b> <span className="text-xs text-muted md:hidden">{label}</span>
+            </span>
+          ))}
+          <span className="text-xs text-cyan md:text-end">{isOpen ? m.hideDetails : m.showDetails}</span>
+        </button>
+        {isOpen && (
+          <div className="border-t border-line/60 px-2 pb-3 pt-3 md:px-4">
+            <ShiftLog m={m} rows={rowsOf(s)} />
+          </div>
+        )}
+      </li>
+    );
+  };
+
+  if (!loaded) return <p className="hud p-6 text-muted">{m.loading}</p>;
+
+  return (
+    <div className="space-y-5">
+      <section className="hud p-4 sm:p-6">
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-display text-lg font-bold text-ink">{m.onShiftNow}</h2>
+          <p className="max-w-prose text-xs text-muted">{m.shiftsHint}</p>
+        </div>
+        {onNow.length === 0 ? (
+          <p className="px-4 text-sm text-muted">{m.nobodyOnShift}</p>
+        ) : (
+          <>
+            <ShiftHead m={m} />
+            <ul>
+              {onNow.map((s) => (
+                <ShiftItem key={s.id} s={s} />
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
+
+      <section className="hud p-4 sm:p-6">
+        <h2 className="mb-4 font-display text-lg font-bold text-ink">{m.pastShifts}</h2>
+        {past.length === 0 ? (
+          <p className="px-4 text-sm text-muted">{m.shiftsEmpty}</p>
+        ) : (
+          <>
+            <ShiftHead m={m} />
+            <ul>
+              {pastPages.slice.map((s) => (
+                <ShiftItem key={s.id} s={s} />
+              ))}
+            </ul>
+            <Pager m={m} {...pastPages} />
+          </>
+        )}
+      </section>
+
+      <section className="hud p-4 sm:p-6">
+        <button type="button" onClick={() => setShowAll(!showAll)} aria-expanded={showAll} className="flex w-full items-center justify-between text-start">
+          <span className="font-display text-lg font-bold text-ink">{m.logTitle}</span>
+          <span className="text-sm text-cyan">{showAll ? m.hideDetails : m.showDetails}</span>
+        </button>
+        {showAll && (
+          <div className="mt-4">
+            {rows.length ? (
+              <>
+                <DayGroups m={m} rows={logPages.slice} />
+                <Pager m={m} {...logPages} />
+              </>
+            ) : (
+              <p className="text-muted">{m.logEmpty}</p>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }

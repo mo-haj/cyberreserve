@@ -68,6 +68,8 @@ export function useBookingAlerts(bookings: ArenaBooking[], m: ManageText, arenaN
   const [on, setOn] = useState(true);
   const [fresh, setFresh] = useState<ArenaBooking[]>([]);
   const seen = useRef(new Set(bookings.map((b) => b.id)));
+  // New bookings highlighted in the list: id -> when someone saw the list (null = not yet).
+  const [marks, setMarks] = useState<Map<string, number | null>>(new Map());
 
   useEffect(() => setOn(readPref()), []);
 
@@ -85,7 +87,13 @@ export function useBookingAlerts(bookings: ArenaBooking[], m: ManageText, arenaN
   useEffect(() => {
     const added = bookings.filter((b) => !seen.current.has(b.id));
     for (const b of bookings) seen.current.add(b.id);
-    if (added.length === 0 || !on) return;
+    if (added.length === 0) return;
+    setMarks((x) => {
+      const next = new Map(x);
+      for (const b of added) next.set(b.id, null);
+      return next;
+    });
+    if (!on) return;
     setFresh((f) => [...added, ...f].slice(0, 5));
     playChime();
     try {
@@ -102,6 +110,53 @@ export function useBookingAlerts(bookings: ArenaBooking[], m: ManageText, arenaN
       /* some browsers refuse notifications from pages: the card still shows */
     }
   }, [bookings, on, m, arenaName]);
+
+  // Keep ringing until someone presses View / Close or opens the bookings list:
+  // every 4 s for the first 2 minutes, then every 15 s.
+  useEffect(() => {
+    if (fresh.length === 0 || !on) return;
+    const started = Date.now();
+    let timer: ReturnType<typeof setTimeout>;
+    const ring = () => {
+      timer = setTimeout(
+        () => {
+          playChime();
+          ring();
+        },
+        Date.now() - started < 120_000 ? 4000 : 15_000,
+      );
+    };
+    ring();
+    return () => clearTimeout(timer);
+  }, [fresh.length, on]);
+
+  // Highlights fade 30 s after the list was seen.
+  useEffect(() => {
+    const seenAt = [...marks.values()].filter((v): v is number => v !== null);
+    if (seenAt.length === 0) return;
+    const due = Math.min(...seenAt) + 30_000 - Date.now();
+    const timer = setTimeout(
+      () =>
+        setMarks((x) => {
+          const next = new Map(x);
+          for (const [id, at] of next) if (at !== null && at + 30_000 <= Date.now()) next.delete(id);
+          return next;
+        }),
+      Math.max(0, due),
+    );
+    return () => clearTimeout(timer);
+  }, [marks]);
+
+  /** The bookings list is on screen: stop the sound and start the 30 s fade. */
+  const sawList = useCallback(() => {
+    setFresh([]);
+    setMarks((x) => {
+      if (![...x.values()].some((v) => v === null)) return x;
+      const next = new Map(x);
+      for (const [id, at] of next) if (at === null) next.set(id, Date.now());
+      return next;
+    });
+  }, []);
 
   // Blink the tab title until someone looks at the page.
   useEffect(() => {
@@ -154,7 +209,16 @@ export function useBookingAlerts(bookings: ArenaBooking[], m: ManageText, arenaN
     }
   }, []);
 
-  return { on, toggle, fresh, dismiss: (id: string) => setFresh((f) => f.filter((b) => b.id !== id)), clear: () => setFresh([]), askSystem };
+  return {
+    on,
+    toggle,
+    fresh,
+    dismiss: (id: string) => setFresh((f) => f.filter((b) => b.id !== id)),
+    clear: () => setFresh([]),
+    askSystem,
+    highlighted: marks,
+    sawList,
+  };
 }
 
 /** The bell toggle shown in the dashboard header. */

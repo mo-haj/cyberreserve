@@ -9,6 +9,7 @@ import LiveFloor, { Legend, type LiveData } from '@/components/LiveFloor';
 import type { CafeSummary } from '@/lib/cafes';
 import { CITIES, CITY_COOKIE, CITY_COOKIE_MAX_AGE, cityName } from '@/lib/cities';
 import { dictionary, pick, type Locale } from '@/lib/i18n';
+import { distanceKm, formatKm } from '@/lib/geo';
 
 // Home page "server browser": arena list on one side, the selected arena's
 // live station map on the other (desktop). On phones a row opens the arena page.
@@ -32,6 +33,7 @@ export default function ArenaBrowser({
   initialLive,
   signedIn,
   profileComplete = false,
+  initialOpen = false,
 }: {
   locale: Locale;
   initial: CafeSummary[];
@@ -41,6 +43,8 @@ export default function ArenaBrowser({
   initialLive: LiveData | null;
   signedIn: boolean;
   profileComplete?: boolean;
+  /** Start with "open now" on (/?open=1). */
+  initialOpen?: boolean;
 }) {
   const t = dictionary(locale);
   const [arenas, setArenas] = useState(initial);
@@ -49,6 +53,10 @@ export default function ArenaBrowser({
     initial.find((a) => !initialCity || a.city === initialCity)?.slug ?? null,
   );
   const [query, setQuery] = useState('');
+  // "Nearest to me": the visitor's position stays in this tab only (never sent to the server).
+  const [here, setHere] = useState<{ lat: number; lng: number } | null>(null);
+  const [locating, setLocating] = useState<'idle' | 'wait' | 'denied'>('idle');
+  const [openOnly, setOpenOnly] = useState(initialOpen);
   // The arena whose live grid the server already rendered.
   const [serverLiveSlug] = useState(selected);
 
@@ -84,10 +92,43 @@ export default function ArenaBrowser({
 
   const inCity = useMemo(() => (city ? arenas.filter((a) => a.city === city) : arenas), [arenas, city]);
 
+  const kmOf = useMemo(() => {
+    const m = new Map<string, number>();
+    if (here) for (const a of arenas) if (a.latitude != null && a.longitude != null) m.set(a.slug, distanceKm(here, { lat: a.latitude, lng: a.longitude }));
+    return m;
+  }, [arenas, here]);
+
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return inCity;
-    return inCity.filter((a) =>
+    const list = (!q ? inCity : searchIn(inCity, q)).filter((a) => !openOnly || a.openNow !== false);
+    if (!here) return list;
+    // Closest first; arenas without a map pin go last.
+    return [...list].sort((x, y) => (kmOf.get(x.slug) ?? Infinity) - (kmOf.get(y.slug) ?? Infinity));
+  }, [inCity, query, here, kmOf, openOnly]);
+
+  function locate() {
+    if (here) {
+      setHere(null);
+      return;
+    }
+    if (!('geolocation' in navigator)) {
+      setLocating('denied');
+      return;
+    }
+    setLocating('wait');
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setHere({ lat: p.coords.latitude, lng: p.coords.longitude });
+        setLocating('idle');
+        chooseCity(null); // the nearest arena may be in another city
+      },
+      () => setLocating('denied'),
+      { enableHighAccuracy: false, timeout: 12_000, maximumAge: 5 * 60_000 },
+    );
+  }
+
+  function searchIn(list: CafeSummary[], q: string) {
+    return list.filter((a) =>
       [
         a.nameEn,
         a.nameAr,
@@ -101,7 +142,7 @@ export default function ArenaBrowser({
         v.toLowerCase().includes(q),
       ),
     );
-  }, [inCity, query]);
+  }
 
   // Keep the preview on an arena that is in the list.
   const current = shown.find((a) => a.slug === selected) ?? shown[0] ?? null;
@@ -176,6 +217,39 @@ export default function ArenaBrowser({
             </button>
           )}
         </label>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={locate}
+            aria-pressed={!!here}
+            disabled={locating === 'wait'}
+            className={`city-option flex items-center gap-2 px-3 py-1.5 text-sm ${here ? 'city-option-on text-ink' : 'text-muted hover:text-ink'}`}
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M12 21s-6.5-6.1-6.5-11A6.5 6.5 0 0 1 18.5 10c0 4.9-6.5 11-6.5 11z" />
+              <circle cx="12" cy="10" r="2.3" />
+            </svg>
+            {locating === 'wait' ? t.home.nearMeWait : here ? t.home.nearMeOff : t.home.nearMe}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !openOnly;
+              setOpenOnly(next);
+              const url = new URL(window.location.href);
+              if (next) url.searchParams.set('open', '1');
+              else url.searchParams.delete('open');
+              window.history.replaceState(null, '', url);
+            }}
+            aria-pressed={openOnly}
+            className={`city-option flex items-center gap-2 px-3 py-1.5 text-sm ${openOnly ? 'city-option-on text-ink' : 'text-muted hover:text-ink'}`}
+          >
+            <span className={`h-2 w-2 rounded-full ${openOnly ? 'bg-free shadow-[0_0_6px_#2BFF88]' : 'bg-muted'}`} aria-hidden="true" />
+            {t.home.openOnly}
+          </button>
+          {here && <span className="text-xs text-free">{t.home.nearMeOn}</span>}
+          {locating === 'denied' && !here && <span className="text-xs text-busy">{t.home.nearMeDenied}</span>}
+        </div>
 
         {/* Re-keyed per city, so the rows "deal in" again when the city changes. */}
         {/* Desktop: the list scrolls inside its box, the page keeps one height. */}
@@ -218,6 +292,9 @@ export default function ArenaBrowser({
                       </p>
                     </div>
                     <p className="truncate text-xs text-muted">
+                      {a.rating && <span className="me-1.5 text-amber-300">★ {a.rating.avg.toFixed(1)}</span>}
+                      {a.openNow === false && <span className="me-1.5 text-busy">{t.engage.closedNow}</span>}
+                      {kmOf.has(a.slug) && <span className="me-1.5 font-hud text-cyan">{t.home.km(formatKm(kmOf.get(a.slug)!))}</span>}
                       {pick(locale, a.areaEn, a.areaAr)}
                       {locale === 'ar' ? '، ' : ', '}
                       {cityName(a.city, locale)}
@@ -316,6 +393,7 @@ export default function ArenaBrowser({
             signedIn={signedIn}
             profileComplete={profileComplete}
             size="compact"
+            arenaName={pick(locale, current.nameEn, current.nameAr)}
             loginHref={`/login?next=${encodeURIComponent(`/arenas/${current.slug}`)}`}
           />
           <div className="mt-auto flex flex-wrap items-center justify-end gap-3 pt-5">

@@ -39,6 +39,10 @@ services:
     dns: [1.1.1.1, 8.8.8.8]
     restart: unless-stopped
     env_file: .env
+    environment:
+      # Public traffic reaches this container only through the Cloudflare
+      # tunnel, so Cloudflare's visitor-IP header is the one to trust.
+      BEHIND_CLOUDFLARE: "1"
     depends_on:
       postgres:
         condition: service_healthy

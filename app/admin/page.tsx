@@ -6,6 +6,7 @@ import { getCurrentUser } from '@/lib/auth/session';
 import { manageText } from '@/lib/i18n-manage';
 import { getLocale } from '@/lib/locale';
 import { listMyArenas } from '@/lib/manage/service';
+import { listRequests } from '@/lib/join';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +30,7 @@ export default async function AdminPage() {
     <>
       <SiteHeader locale={locale} user={user} path="/admin" />
       <main className="mx-auto w-full max-w-site px-4 pb-10 lg:px-8">
-        <AdminHome locale={locale} superAdmin={user.superAdmin} arenas={arenas} />
+        <AdminHome locale={locale} superAdmin={user.superAdmin} arenas={arenas} requests={user.superAdmin ? await listRequests() : []} />
       </main>
       <SiteFooter locale={locale} />
     </>

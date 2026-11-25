@@ -1,6 +1,6 @@
 # Multi-stage build: deps -> builder -> runner (+ prod-deps for the runtime node_modules).
 
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 # Prisma's query engine needs OpenSSL.
 RUN apk add --no-cache openssl
 WORKDIR /app

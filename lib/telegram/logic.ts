@@ -106,6 +106,8 @@ export const BOT_TEXT = {
       'لا تكتب الرقم 🙏 الرقم المكتوب لا يمكن التأكد أنه رقمك.\n\n👇 اضغط زر "📱 مشاركة رقمي" في أسفل المحادثة، وتيليغرام يرسله لنا موثّقاً بالشكل \u2066+963 9XX XXX XXX\u2069.\n\nلا يظهر الزر؟ افتح هذه المحادثة من تطبيق تيليغرام على الهاتف.',
     notOwn: 'يجب أن تشارك رقمك أنت، وليس رقم شخص آخر. اضغط زر "📱 مشاركة رقمي".',
     noPending: 'لا يوجد طلب تسجيل دخول بانتظارك. اضغط "تسجيل الدخول" على الموقع لتبدأ.',
+    phoneLocked:
+      'هذا الرقم مرتبط بحساب يدير صالة من حساب تيليغرام آخر. لحماية الصالة لا نستطيع تسجيل الدخول به من هذا الحساب. تواصل مع إدارة الموقع لنقل الحساب.',
     badPhone: 'تعذّر قراءة الرقم. حاول مرة أخرى من الموقع.',
     done: 'تم تسجيل الدخول ✅ ارجع إلى الموقع، ستدخل تلقائياً خلال ثوانٍ.',
   },
@@ -125,6 +127,8 @@ export const BOT_TEXT = {
       'Please do not type the number 🙏 a typed number cannot be checked as yours.\n\n👇 Tap "📱 Share my number" at the bottom of the chat; Telegram sends it to us verified, like +963 9XX XXX XXX.\n\nNo button? Open this chat in the Telegram phone app.',
     notOwn: 'Please share your own number, not someone else\'s. Use the "📱 Share my number" button.',
     noPending: 'There is no sign-in waiting for you. Press "Sign in" on the website to start.',
+    phoneLocked:
+      'This number belongs to an account that manages an arena, from a different Telegram account. To protect the arena we cannot sign you in from this account. Contact the site team to move the account.',
     badPhone: 'Could not read that number. Try again from the website.',
     done: 'Signed in ✅ Go back to the website; it signs you in within a few seconds.',
   },

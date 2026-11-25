@@ -28,7 +28,7 @@ const config: Config = {
       },
       maxWidth: {
         prose: '68ch',
-        site: '1440px',
+        site: '90rem',
       },
     },
   },

@@ -51,6 +51,8 @@ export const ManageAction = z.discriminatedUnion('action', [
   // Staff and owners: the live floor.
   z.object({ action: z.literal('walkIn'), pcNumber: PcNumber, minutes: z.number().int().min(15).max(12 * 60) }),
   z.object({ action: z.literal('freeNow'), pcNumber: PcNumber }),
+  // Staff and owners: start / end their shift (who did what, in which shift).
+  z.object({ action: z.literal('shift'), on: z.boolean() }),
   // Add time to the session running on a station now.
   z.object({ action: z.literal('extend'), pcNumber: PcNumber, minutes: z.number().int().min(15).max(6 * 60) }),
   z.object({ action: z.literal('maintenance'), pcNumber: PcNumber, on: z.boolean() }),
@@ -93,6 +95,9 @@ export const ManageAction = z.discriminatedUnion('action', [
     nightShiftRate: Price,
     /** Map pin as text ("33.50, 36.25" or a Google Maps link); empty = no map. */
     location: ShortText(500),
+    /** Opening hours "HH:MM" (Damascus); both empty = not set; equal = 24 hours. */
+    openTime: z.union([z.literal(''), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)]).default(''),
+    closeTime: z.union([z.literal(''), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)]).default(''),
   }),
   // Owners only: zones (spec cards). `stations` = station numbers in it.
   z.object({
@@ -140,10 +145,29 @@ export const ManageAction = z.discriminatedUnion('action', [
     noteEn: ShortText(120),
   }),
   z.object({ action: z.literal('removeOffer'), id: Uuid }),
+  // Owners: tournaments (followers hear about new ones).
+  z.object({
+    action: z.literal('saveTournament'),
+    id: Uuid.optional(),
+    titleAr: Text(2, 80),
+    titleEn: Text(2, 80),
+    game: Text(1, 60),
+    /** Damascus local "YYYY-MM-DDTHH:MM". */
+    startsAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
+    maxPlayers: z.number().int().min(2).max(256),
+    fee: z.string().regex(/^\d{1,9}$/).default('0'),
+    prizeAr: ShortText(160),
+    prizeEn: ShortText(160),
+    noteAr: ShortText(400),
+    noteEn: ShortText(400),
+  }),
+  z.object({ action: z.literal('removeTournament'), id: Uuid }),
+  z.object({ action: z.literal('removeEntry'), id: Uuid, userId: z.string().min(1).max(64) }),
   z.object({ action: z.literal('setBadge'), userId: z.string().min(1).max(64), badge: z.enum(['', 'loyal', 'vip']) }),
   z.object({ action: z.literal('movePost'), id: Uuid, by: z.union([z.literal(-1), z.literal(1)]) }),
   // Super admin only (the site owner).
   z.object({ action: z.literal('setPublished'), on: z.boolean() }),
+  z.object({ action: z.literal('hideReview'), id: Uuid, hidden: z.boolean() }),
   z.object({ action: z.literal('setMember'), phone: Text(6, 30), role: z.enum(['OWNER', 'STAFF']) }),
   z.object({ action: z.literal('removeMember'), userId: Uuid }),
   z.object({
@@ -152,15 +176,17 @@ export const ManageAction = z.discriminatedUnion('action', [
     genre: z.enum(['shooter', 'moba', 'battle', 'sports', 'racing', 'fighting', 'open', 'strategy', 'coop', 'other']),
   }),
   z.object({ action: z.literal('removeGame'), slug: z.string().regex(/^[a-z0-9-]{1,80}$/) }),
+  /** Site owner: an arena's own game joins the shared list every arena picks from. */
+  z.object({ action: z.literal('promoteGame'), slug: z.string().regex(/^[a-z0-9-]{1,80}$/) }),
   z.object({ action: z.literal('setGames'), slugs: z.array(z.string().regex(/^[a-z0-9-]{1,60}$/)).max(300) }),
 ]);
 export type ManageAction = z.infer<typeof ManageAction>;
 
 /** What STAFF may do; OWNER may do everything. */
-export const STAFF_ACTIONS = new Set<ManageAction['action']>(['walkIn', 'freeNow', 'extend', 'maintenance', 'markBooking']);
+export const STAFF_ACTIONS = new Set<ManageAction['action']>(['walkIn', 'freeNow', 'extend', 'maintenance', 'markBooking', 'shift']);
 
 /** Only the site owner (super admin) may do these, in any arena. */
-export const SUPER_ACTIONS = new Set<ManageAction['action']>(['setPublished', 'setMember', 'removeMember']);
+export const SUPER_ACTIONS = new Set<ManageAction['action']>(['setPublished', 'setMember', 'removeMember', 'promoteGame', 'hideReview']);
 
 export function canDo(role: 'OWNER' | 'STAFF', action: ManageAction['action'], superAdmin = false): boolean {
   if (superAdmin) return true;

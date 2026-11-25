@@ -23,7 +23,7 @@ export default async function ManageArena({ params }: { params: Promise<{ slug: 
   const member = await getMembership(user, slug);
   // Same answer for "no such arena" and "not yours": do not reveal which.
   if (!member) notFound();
-  const data = await getManageData(member.cafeId);
+  const data = await getManageData(member.cafeId, { ...member, userId: user.id });
   const m = manageText(locale);
 
   return (

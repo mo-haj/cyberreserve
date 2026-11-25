@@ -2,12 +2,16 @@
 // that sends "still coming?" reminders. Server only. Telegram messages are
 // best effort: a failed message never undoes a booking.
 import { BookingStatus, Prisma } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { cityName } from '@/lib/cities';
 import { prisma } from '@/lib/prisma';
 import { now as clockNow, formatDamascusTime } from '@/lib/time';
 import { escapeHtml, tg, tgResult } from '@/lib/telegram/api';
 import { background } from '@/lib/background';
+import { closeStaleShifts, logArena } from '@/lib/activity';
+import { askRatings, nightlySummaries, processFreeWatches } from '@/lib/engage';
 import { GROUP_SELECT } from '@/lib/cafes';
+import { offerLabel } from '@/lib/offers';
 import { BOOKING, checkRequest, isBlocked, priceWithOffers, reminderAt, type BookingCheck, type OfferKind } from '@/lib/booking/rules';
 import { ARENA_TEXT, BOOKING_TEXT, banUntilText, formatWhen, reasonText, type BookingFacts, type BotLang } from '@/lib/booking/texts';
 
@@ -26,7 +30,13 @@ export type CreateError =
   /** This arena stopped taking this player's bookings (detail: reason, until). */
   | 'arena_banned'
   /** The arena cancelled this player's booking at this time (detail: reason). */
-  | 'arena_cancelled';
+  | 'arena_cancelled'
+  /** Too many cancellations in the last 24 hours. */
+  | 'too_many_cancels'
+  /** Several stations at once is for the arena's VIP players. */
+  | 'not_vip'
+  /** Fewer stations free at that time than asked for. */
+  | 'not_enough';
 
 export type CreateResult =
   | { ok: true; booking: { id: string; start: string; end: string; price: string } }
@@ -44,7 +54,18 @@ async function facts(bookingId: string, lang: BotLang) {
   const b = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: {
-      device: { select: { pcNumber: true, type: true, cafeId: true, cafe: { select: { nameAr: true, nameEn: true } } } },
+      device: {
+        select: {
+          pcNumber: true,
+          type: true,
+          cafeId: true,
+          hourlyRate: true,
+          nightRate: true,
+          cafe: {
+            select: { nameAr: true, nameEn: true, hourlyRate: true, nightShiftRate: true, offers: { select: { hours: true, kind: true, price: true, stationType: true } } },
+          },
+        },
+      },
       user: { select: { id: true, name: true, nickname: true, fullName: true, phone: true, homeCity: true, telegramChatId: true, strikesCount: true } },
     },
   });
@@ -54,8 +75,38 @@ async function facts(bookingId: string, lang: BotLang) {
     station: await stationName(b.device.cafeId, b.device.pcNumber, b.device.type),
     when: formatWhen(lang, b.startTime, b.endTime),
     price: b.totalPrice.toFixed(0),
+    ...dealOf(b, lang),
   };
   return { b, f };
+}
+
+/** Which offer gave this booking its price (if one did), worked out again from the arena's offers. */
+function dealOf(
+  b: {
+    startTime: Date;
+    endTime: Date;
+    totalPrice: Prisma.Decimal;
+    isWalkIn: boolean;
+    device: {
+      type: string;
+      hourlyRate: Prisma.Decimal | null;
+      nightRate: Prisma.Decimal | null;
+      cafe: { hourlyRate: Prisma.Decimal; nightShiftRate: Prisma.Decimal; offers: { hours: number; kind: string; price: Prisma.Decimal; stationType: string }[] };
+    };
+  },
+  lang: BotLang,
+): { deal?: string; normal?: string } {
+  if (b.isWalkIn) return {};
+  const minutes = Math.round((b.endTime.getTime() - b.startTime.getTime()) / MIN);
+  const day = Number(b.device.hourlyRate ?? b.device.cafe.hourlyRate);
+  const night = Number(b.device.nightRate ?? b.device.cafe.nightShiftRate);
+  const offers = b.device.cafe.offers
+    .filter((o) => !o.stationType || o.stationType === b.device.type)
+    .map((o) => ({ hours: o.hours, kind: o.kind as OfferKind, price: Number(o.price) }));
+  const q = priceWithOffers(b.startTime, minutes, day, night, offers);
+  if (!q.offer || q.price !== Math.round(Number(b.totalPrice))) return {};
+  const label = offerLabel({ hours: q.offer.hours, kind: q.offer.kind ?? 'package', price: q.offer.price }, lang);
+  return { deal: `${label.deal} (${label.when})`, normal: String(q.normal) };
 }
 
 function playerLabel(u: { nickname: string | null; name: string; fullName: string | null } | null): string {
@@ -79,18 +130,13 @@ async function tellArena(cafeId: string, text: string, keyboard?: { text: string
   for (const chat of await arenaChats(cafeId)) await send(chat, text, keyboard);
 }
 
-/** The public site address for links in bot messages, when known. */
-function siteUrl(): string | null {
-  const own = process.env.SITE_URL?.trim().replace(/\/$/, '');
-  if (own) return own;
-  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  return vercel ? `https://${vercel}` : null;
-}
+export { siteUrl } from '@/lib/site';
+import { siteUrl } from '@/lib/site';
 
 type Keyboard = { text: string; callback_data: string }[][];
 
 /** Send, and remember the message so it can be edited when the booking changes. */
-async function sendTracked(chatId: string, text: string, bookingId: string, kind: 'arena' | 'player' | 'reminder', keyboard?: Keyboard) {
+async function sendTracked(chatId: string, text: string, bookingId: string, kind: 'arena' | 'player' | 'reminder', keyboard?: Keyboard): Promise<boolean> {
   const msg = await tgResult<{ message_id: number }>('sendMessage', {
     chat_id: chatId,
     text,
@@ -99,6 +145,7 @@ async function sendTracked(chatId: string, text: string, bookingId: string, kind
   if (msg?.message_id) {
     await prisma.bookingMessage.create({ data: { bookingId, chatId, messageId: msg.message_id, kind } }).catch(() => undefined);
   }
+  return !!msg?.message_id;
 }
 
 export type BookingChange = 'arena_cancel' | 'player_cancel' | 'auto_cancel' | 'arrived' | 'noshow' | 'coming';
@@ -180,9 +227,26 @@ export async function banPlayer(cafeId: string, byUserId: string, userId: string
     create: { cafeId, userId, until, reason, byUserId },
     update: { until, reason, byUserId, createdAt: clockNow() },
   });
-  await prisma.auditLog.create({
-    data: { actorType: 'OWNER', userId: byUserId, action: 'arena.ban', details: { cafeId, player: userId, until: until?.toISOString() ?? 'forever' } },
+  await logArena({ cafeId, userId: byUserId, action: 'arena.ban', details: { player: userId, until: until?.toISOString() ?? 'forever', reason } });
+  // Bookings of this player at this arena that fall inside the stop are cancelled too.
+  const at = clockNow();
+  const upcoming = await prisma.booking.findMany({
+    where: {
+      userId,
+      status: { in: HOLDING },
+      actualStart: null,
+      startTime: { gt: at, ...(until ? { lt: until } : {}) },
+      device: { cafeId },
+    },
+    select: { id: true },
   });
+  for (const b of upcoming) {
+    const done = await prisma.booking.updateMany({
+      where: { id: b.id, status: { in: HOLDING } },
+      data: { status: BookingStatus.CANCELLED, cancelledAt: at, cancelledBy: 'ARENA', cancelReason: reason },
+    });
+    if (done.count === 1) background('ban cancel', () => refreshMessages(b.id, 'arena_cancel'));
+  }
   background('ban notify', async () => {
     const [u, cafe] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId }, select: { telegramChatId: true, bookings: { orderBy: { createdAt: 'desc' }, take: 1, select: { locale: true } } } }),
@@ -197,7 +261,7 @@ export async function banPlayer(cafeId: string, byUserId: string, userId: string
 export async function unbanPlayer(cafeId: string, byUserId: string, userId: string): Promise<boolean> {
   const done = await prisma.arenaBan.deleteMany({ where: { cafeId, userId } });
   if (done.count === 0) return false;
-  await prisma.auditLog.create({ data: { actorType: 'OWNER', userId: byUserId, action: 'arena.unban', details: { cafeId, player: userId } } });
+  await logArena({ cafeId, userId: byUserId, action: 'arena.unban', details: { player: userId } });
   background('unban notify', async () => {
     const [u, cafe] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId }, select: { telegramChatId: true, bookings: { orderBy: { createdAt: 'desc' }, take: 1, select: { locale: true } } } }),
@@ -219,10 +283,12 @@ export async function createBooking(input: {
   start: Date | 'now';
   minutes: number;
   lang: BotLang;
+  /** A VIP group booking: same id on each, and this many active bookings allowed. */
+  group?: { id: string; allowActive: number };
 }): Promise<CreateResult> {
   const at = clockNow();
   const start = input.start === 'now' ? at : input.start;
-  const check = checkRequest(start, input.minutes, at);
+  const check = checkRequest(start, input.minutes, at, input.start !== 'now');
   if (check !== 'ok') return { ok: false, error: check };
   const end = new Date(start.getTime() + input.minutes * MIN);
 
@@ -244,6 +310,12 @@ export async function createBooking(input: {
   if (!device) return { ok: false, error: 'not_found' };
   if (device.isMaintenance) return { ok: false, error: 'maintenance' };
 
+  // Booking and cancelling over and over floods the arenas' Telegram: pause it.
+  const cancels = await prisma.booking.count({
+    where: { userId: input.userId, cancelledBy: 'PLAYER', cancelledAt: { gt: new Date(at.getTime() - 24 * 60 * MIN) } },
+  });
+  if (cancels >= BOOKING.maxCancelsPerDay) return { ok: false, error: 'too_many_cancels' };
+
   const ban = await activeBan(device.cafe.id, input.userId, at);
   if (ban) return { ok: false, error: 'arena_banned', detail: { reason: ban.reason, until: ban.until?.toISOString() ?? null } };
   // The arena cancelled this player's booking at this time: do not let them simply book it again.
@@ -261,11 +333,6 @@ export async function createBooking(input: {
   });
   if (refused) return { ok: false, error: 'arena_cancelled', detail: { reason: reasonText(refused.cancelReason, input.lang), until: null } };
 
-  const active = await prisma.booking.count({
-    where: { userId: input.userId, isWalkIn: false, status: { in: HOLDING }, endTime: { gt: at } },
-  });
-  if (active >= BOOKING.maxActivePerPlayer) return { ok: false, error: 'has_active' };
-
   const day = Number(device.hourlyRate ?? device.cafe.hourlyRate);
   const night = Number(device.nightRate ?? device.cafe.nightShiftRate);
   const offers = device.cafe.offers
@@ -273,21 +340,32 @@ export async function createBooking(input: {
     .map((o) => ({ hours: o.hours, kind: o.kind as OfferKind, price: Number(o.price) }));
   const { price } = priceWithOffers(start, input.minutes, day, night, offers);
 
+  // Count and insert in one step, one player at a time (a per-player lock), so
+  // parallel requests cannot get past the one-active-booking limit.
   let id: string;
   try {
-    const created = await prisma.booking.create({
-      data: {
-        userId: input.userId,
-        deviceId: device.id,
-        startTime: start,
-        endTime: end,
-        totalPrice: new Prisma.Decimal(price),
-        status: BookingStatus.CONFIRMED,
-        confirmedAt: at,
-        locale: input.lang,
-      },
-      select: { id: true },
+    const created = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'book:' + input.userId}))`;
+      const active = await tx.booking.count({
+        where: { userId: input.userId, isWalkIn: false, status: { in: HOLDING }, endTime: { gt: at } },
+      });
+      if (active >= (input.group?.allowActive ?? BOOKING.maxActivePerPlayer)) return null;
+      return tx.booking.create({
+        data: {
+          userId: input.userId,
+          deviceId: device.id,
+          startTime: start,
+          endTime: end,
+          totalPrice: new Prisma.Decimal(price),
+          status: BookingStatus.CONFIRMED,
+          confirmedAt: at,
+          locale: input.lang,
+          groupId: input.group?.id ?? null,
+        },
+        select: { id: true },
+      });
     });
+    if (!created) return { ok: false, error: 'has_active' };
     id = created.id;
   } catch (err) {
     // The database refuses two holds on one station at the same time (no_overlap_booking).
@@ -295,9 +373,7 @@ export async function createBooking(input: {
     throw err;
   }
 
-  await prisma.auditLog.create({
-    data: { actorType: 'PLAYER', userId: input.userId, action: 'booking.create', details: { bookingId: id, slug: input.slug, pcNumber: input.pcNumber } },
-  });
+  await logArena({ cafeId: device.cafe.id, userId: input.userId, actor: 'PLAYER', action: 'booking.create', details: { bookingId: id, pcNumber: input.pcNumber } });
   background('booking notify', () => notifyCreated(id));
   return { ok: true, booking: { id, start: start.toISOString(), end: end.toISOString(), price: String(price) } };
 }
@@ -339,6 +415,56 @@ export async function bookAny(input: {
     if (r.error !== 'taken' && r.error !== 'maintenance' && r.error !== 'not_found') return r;
   }
   return { ok: false, error: 'taken' };
+}
+
+/**
+ * VIP group booking: `count` stations of one group for the same time (the
+ * player and friends). Only for players the arena marked VIP.
+ */
+export async function bookGroup(input: {
+  userId: string;
+  slug: string;
+  type: string;
+  groupId: string | null;
+  start: Date | 'now';
+  minutes: number;
+  lang: BotLang;
+  count: number;
+}): Promise<CreateResult & { pcNumbers?: number[] }> {
+  const cafe = await prisma.cafe.findFirst({ where: { slug: input.slug, isPublished: true }, select: { id: true } });
+  if (!cafe) return { ok: false, error: 'not_found' };
+  const vip = await prisma.playerBadge.findUnique({ where: { cafeId_userId: { cafeId: cafe.id, userId: input.userId } }, select: { badge: true } });
+  if (vip?.badge !== 'vip') return { ok: false, error: 'not_vip' };
+  const at = clockNow();
+  const start = input.start === 'now' ? at : input.start;
+  const end = new Date(start.getTime() + input.minutes * MIN);
+  const devices = await prisma.device.findMany({
+    where: {
+      cafeId: cafe.id,
+      type: input.type as Prisma.DeviceWhereInput['type'],
+      groupId: input.groupId,
+      archivedAt: null,
+      isMaintenance: false,
+      bookings: { none: { status: { in: HOLDING }, startTime: { lt: end }, endTime: { gt: start } } },
+    },
+    orderBy: { pcNumber: 'asc' },
+    select: { pcNumber: true },
+  });
+  if (devices.length < input.count) return { ok: false, error: 'not_enough' };
+  const group = { id: randomUUID(), allowActive: BOOKING.maxActivePerPlayer - 1 + input.count };
+  const got: { pcNumber: number; booking: { id: string; start: string; end: string; price: string } }[] = [];
+  for (const d of devices) {
+    if (got.length === input.count) break;
+    const r = await createBooking({ ...input, pcNumber: d.pcNumber, start: input.start, group });
+    if (r.ok) got.push({ pcNumber: d.pcNumber, booking: r.booking });
+    else if (r.error !== 'taken' && r.error !== 'maintenance' && r.error !== 'not_found') {
+      if (got.length === 0) return r;
+      break;
+    }
+  }
+  if (got.length === 0) return { ok: false, error: 'taken' };
+  const total = got.reduce((sum, g) => sum + Number(g.booking.price), 0);
+  return { ok: true, booking: { ...got[0].booking, price: String(total) }, pcNumbers: got.map((g) => g.pcNumber) };
 }
 
 /** When a group of stations is taken, per station, for the "any station" sheet. */
@@ -457,7 +583,8 @@ export async function cancelByPlayer(userId: string, bookingId: string): Promise
     data: { status: BookingStatus.CANCELLED, cancelledAt: at, cancelledBy: 'PLAYER' },
   });
   if (done.count !== 1) return false;
-  await prisma.auditLog.create({ data: { actorType: 'PLAYER', userId, action: 'booking.cancel', details: { bookingId } } });
+  const own = await prisma.booking.findUnique({ where: { id: bookingId }, select: { device: { select: { cafeId: true } } } });
+  if (own) await logArena({ cafeId: own.device.cafeId, userId, actor: 'PLAYER', action: 'booking.player_cancel', details: { bookingId } });
   background('booking cancel notify', async () => {
     const x = await facts(bookingId, 'ar');
     if (!x) return;
@@ -498,33 +625,55 @@ export async function markByArena(
   userId: string,
   bookingId: string,
   mark: ArenaMark,
-  opts: { reason?: string; ban?: { until: Date | null; reason: string } } = {},
-): Promise<{ ok: true; player: string } | { ok: false; error: 'not_allowed' | 'too_late' }> {
+  opts: {
+    reason?: string;
+    ban?: { until: Date | null; reason: string };
+    /**
+     * The arena the caller was already checked for (dashboard). The booking
+     * must belong to it; without it (Telegram), the caller must be a member
+     * of the booking's own arena.
+     */
+    cafeId?: string;
+  } = {},
+): Promise<{ ok: true; player: string } | { ok: false; error: 'not_allowed' | 'too_late' | 'too_early' }> {
   const at = clockNow();
   const b = await prisma.booking.findUnique({
     where: { id: bookingId },
-    select: { id: true, status: true, startTime: true, endTime: true, userId: true, actualStart: true, device: { select: { cafeId: true } } },
+    select: { id: true, status: true, startTime: true, endTime: true, createdAt: true, userId: true, actualStart: true, device: { select: { cafeId: true } } },
   });
   if (!b) return { ok: false, error: 'not_allowed' };
-  const member = await prisma.arenaMember.findUnique({ where: { cafeId_userId: { cafeId: b.device.cafeId, userId } } });
-  if (!member) return { ok: false, error: 'not_allowed' };
+  if (opts.cafeId) {
+    if (b.device.cafeId !== opts.cafeId) return { ok: false, error: 'not_allowed' };
+  } else {
+    const member = await prisma.arenaMember.findUnique({ where: { cafeId_userId: { cafeId: b.device.cafeId, userId } } });
+    if (!member) return { ok: false, error: 'not_allowed' };
+    if (opts.ban) return { ok: false, error: 'not_allowed' }; // bans only from the dashboard (owner check there)
+  }
   if (!HOLDING.includes(b.status) || b.endTime <= at) return { ok: false, error: 'too_late' };
 
+  // Each change only applies if the booking is still in the right state, so a
+  // double click or two staff pressing at once count once.
+  const open = { id: b.id, status: { in: HOLDING }, endTime: { gt: at } };
   if (mark === 'arrived') {
-    await prisma.booking.update({ where: { id: b.id }, data: { actualStart: at } });
+    const done = await prisma.booking.updateMany({ where: { ...open, actualStart: null }, data: { actualStart: at, stillComingAt: at } });
+    if (done.count !== 1) return { ok: false, error: 'too_late' };
   } else if (mark === 'cancel') {
-    await prisma.booking.update({
-      where: { id: b.id },
+    const done = await prisma.booking.updateMany({
+      where: open,
       data: { status: BookingStatus.CANCELLED, cancelledAt: at, cancelledBy: 'ARENA', cancelReason: opts.reason?.trim() || null },
     });
+    if (done.count !== 1) return { ok: false, error: 'too_late' };
     if (opts.ban && b.userId) await banPlayer(b.device.cafeId, userId, b.userId, opts.ban.until, opts.ban.reason);
   } else {
-    // No-show counts only once the booking has started, and never after "arrived".
-    if (b.startTime > at || b.actualStart) return { ok: false, error: 'too_late' };
-    await prisma.booking.update({
-      where: { id: b.id },
+    // No-show counts only after a grace time past the start (and past the
+    // moment it was booked, for "now" bookings), and never after "arrived".
+    const graceFrom = Math.max(b.startTime.getTime(), b.createdAt.getTime());
+    if (at.getTime() < graceFrom + BOOKING.noShowGraceMin * MIN || b.actualStart) return { ok: false, error: 'too_early' };
+    const done = await prisma.booking.updateMany({
+      where: { ...open, actualStart: null, startTime: { lte: new Date(at.getTime() - BOOKING.noShowGraceMin * MIN) } },
       data: { status: BookingStatus.NO_SHOW, endTime: at > b.startTime ? at : b.endTime },
     });
+    if (done.count !== 1) return { ok: false, error: 'too_late' };
     if (b.userId) {
       const u = await prisma.user.update({
         where: { id: b.userId },
@@ -539,7 +688,12 @@ export async function markByArena(
       }
     }
   }
-  await prisma.auditLog.create({ data: { actorType: 'OWNER', userId, action: `booking.${mark}`, details: { bookingId } } });
+  await logArena({
+    cafeId: b.device.cafeId,
+    userId,
+    action: `booking.${mark}`,
+    details: { bookingId, ...(mark === 'cancel' && opts.reason?.trim() ? { reason: opts.reason.trim() } : {}) },
+  });
 
   await refreshMessages(b.id, mark === 'cancel' ? 'arena_cancel' : mark);
   const x = await facts(b.id, 'ar');
@@ -667,7 +821,8 @@ export async function tick(): Promise<void> {
       user: { telegramChatId: { not: null } },
     },
     select: { id: true, createdAt: true, startTime: true, locale: true },
-    take: 50,
+    orderBy: { startTime: 'asc' },
+    take: 200,
   });
   for (const b of due) {
     const when = reminderAt(b.createdAt, b.startTime);
@@ -683,12 +838,15 @@ export async function tick(): Promise<void> {
     const x = await facts(b.id, lang);
     if (!x?.b.user?.telegramChatId) continue;
     const answerBy = formatDamascusTime(new Date(b.startTime.getTime() - BOOKING.answerByBeforeMin * MIN));
-    await sendTracked(x.b.user.telegramChatId, BOOKING_TEXT[lang].reminder(x.f, answerBy), b.id, 'reminder', [
+    const sent = await sendTracked(x.b.user.telegramChatId, BOOKING_TEXT[lang].reminder(x.f, answerBy), b.id, 'reminder', [
       [
         { text: BOOKING_TEXT[lang].comingButton, callback_data: `bp:y:${b.id}` },
         { text: BOOKING_TEXT[lang].cancelButton, callback_data: `bp:c:${b.id}` },
       ],
     ]);
+    // Not delivered (Telegram down, bot blocked...): try again next minute.
+    // A question the player never got must never cancel their booking.
+    if (!sent) await prisma.booking.updateMany({ where: { id: b.id, reminderSentAt: at, stillComingAt: null }, data: { reminderSentAt: null } });
   }
 
   // 2. No answer by 15 minutes before the start: free the station.
@@ -696,16 +854,19 @@ export async function tick(): Promise<void> {
     where: {
       isWalkIn: false,
       status: BookingStatus.CONFIRMED,
-      reminderSentAt: { not: null },
+      // Asked at least 10 minutes ago, so they had time to answer.
+      reminderSentAt: { not: null, lte: new Date(at.getTime() - BOOKING.minAnswerMin * MIN) },
       stillComingAt: null,
+      // Already at the arena: never cancel.
+      actualStart: null,
       startTime: { lte: new Date(at.getTime() + BOOKING.answerByBeforeMin * MIN) },
     },
     select: { id: true, locale: true },
-    take: 50,
+    take: 200,
   });
   for (const b of silent) {
     const done = await prisma.booking.updateMany({
-      where: { id: b.id, status: BookingStatus.CONFIRMED, stillComingAt: null },
+      where: { id: b.id, status: BookingStatus.CONFIRMED, stillComingAt: null, actualStart: null },
       data: { status: BookingStatus.CANCELLED, cancelledAt: at, cancelledBy: 'SYSTEM' },
     });
     if (done.count !== 1) continue;
@@ -722,4 +883,20 @@ export async function tick(): Promise<void> {
     where: { status: BookingStatus.CONFIRMED, endTime: { lte: at } },
     data: { status: BookingStatus.COMPLETED },
   });
+
+  // 4. Forget what is no longer needed: ended sign-ins and sessions, stale bot prompts.
+  const dayAgo = new Date(at.getTime() - 24 * 60 * MIN);
+  await prisma.session.deleteMany({ where: { expiresAt: { lt: at } } });
+  await prisma.loginRequest.deleteMany({ where: { expiresAt: { lt: dayAgo } } });
+  await prisma.telegramPending.deleteMany({ where: { expiresAt: { lt: at } } });
+  await closeStaleShifts();
+
+  // 5. Players waiting for a free station, ratings after a visit, owners' nightly summary.
+  for (const [name, job] of [
+    ['free watches', processFreeWatches],
+    ['ratings', askRatings],
+    ['summaries', nightlySummaries],
+  ] as const) {
+    await job(at).catch((err) => console.error(`tick ${name}`, err));
+  }
 }

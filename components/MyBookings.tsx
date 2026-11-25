@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import ShareBooking from '@/components/ShareBooking';
 import { useState } from 'react';
 import type { MyBooking } from '@/lib/booking/service';
 import { dictionary, pick, type Locale } from '@/lib/i18n';
@@ -75,6 +76,16 @@ export default function MyBookings({ locale, initial }: { locale: Locale; initia
                     <p className={`text-xs ${b.live ? 'text-free' : 'text-muted'}`}>{b.live ? t.bookings.live : t.bookings.status[b.status]}</p>
                   </div>
                 </div>
+                {active && (
+                  <ShareBooking
+                    locale={locale}
+                    arena={pick(locale, b.arenaEn, b.arenaAr)}
+                    station={b.station}
+                    when={`${DAYS[locale][p.weekday]} ${p.day}/${p.month} · ${formatDamascusTime(s)}–${formatDamascusTime(new Date(b.end))}`}
+                    slug={b.arenaSlug}
+                    className="mt-3"
+                  />
+                )}
                 {b.canCancel && (
                   <button
                     type="button"

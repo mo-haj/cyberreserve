@@ -36,7 +36,8 @@ enum LoginStatus {
 
 enum ActorType {
   ADMIN
-  OWNER // arena owner or staff, acting in the owner panel
+  OWNER // arena owner, acting in the owner panel or the bot
+  STAFF // arena staff
   PLAYER
   SYSTEM
   AGENT
@@ -71,6 +72,12 @@ model User {
   arenas          ArenaMember[]
   badges          PlayerBadge[]
   arenaBans       ArenaBan[]     @relation("ArenaBans")
+  shifts          StaffShift[]
+  freeWatches     FreeWatch[]
+  reviews         ArenaReview[]
+  tournamentEntries TournamentEntry[]
+  follows         ArenaFollow[]
+  arenaRequests   ArenaRequest[]
 }
 
 // One "Sign in with Telegram" attempt. The browser holds a secret token (only
@@ -128,6 +135,12 @@ model Cafe {
   taglineAr      String
   hoursEn        String
   hoursAr        String
+  /// Opening hours in minutes after midnight (Damascus). Both null = not set;
+  /// open == close = open 24 hours; close < open = past midnight.
+  openMin        Int?
+  closeMin       Int?
+  /// Damascus date (YYYY-MM-DD) of the last nightly summary sent to the owners.
+  summarySentOn  String?
   hourlyRate     Decimal        @db.Decimal(12, 2)
   nightShiftRate Decimal        @db.Decimal(12, 2)
   currency       String         @default("SYP")
@@ -148,6 +161,11 @@ model Cafe {
   stationGroups  StationGroup[]
   members        ArenaMember[]
   images         ArenaImage[]
+  shifts         StaffShift[]
+  freeWatches    FreeWatch[]
+  reviews        ArenaReview[]
+  tournaments    Tournament[]
+  followers      ArenaFollow[]
 
   @@index([city])
 }
@@ -219,8 +237,10 @@ model BookingMessage {
 /// The bot waits for a typed answer from this chat (e.g. a cancel reason).
 model TelegramPending {
   chatId    String   @id
+  /// "cancel_reason": waiting for the typed reason; "cancel_confirm": reason in `text`, waiting for yes/no.
   kind      String
   bookingId String
+  text      String?
   expiresAt DateTime @db.Timestamptz(3)
 }
 
@@ -337,6 +357,10 @@ model Booking {
   /// "Still coming?" sent / answered (online bookings made well ahead).
   reminderSentAt DateTime?        @db.Timestamptz(3)
   stillComingAt  DateTime?        @db.Timestamptz(3)
+  /// "Rate your visit" sent after the session ended.
+  ratingAskedAt  DateTime?        @db.Timestamptz(3)
+  /// Several stations booked together (VIP group booking): same id on each.
+  groupId        String?
   /// Language of the bot messages about this booking (the site language when booked).
   locale         String           @default("ar")
   createdAt      DateTime         @default(now()) @db.Timestamptz(3)
@@ -391,11 +415,30 @@ model AuditLog {
   userId     String? // set when actorType = PLAYER
   action     String
   details    Json?
+  /// The arena this entry belongs to (activity tab). Null for site-wide entries.
+  cafeId     String?
+  /// The shift the person was on when they did this, if any.
+  shiftId    String?
   createdAt  DateTime  @default(now()) @db.Timestamptz(3)
 
   user User? @relation(fields: [userId], references: [id])
 
   @@index([createdAt])
+  @@index([cafeId, createdAt])
+}
+
+/// A staff member's (or owner's) shift at one arena. endedAt null = on shift now.
+model StaffShift {
+  id        String    @id @default(uuid())
+  cafeId    String
+  userId    String
+  startedAt DateTime  @default(now()) @db.Timestamptz(3)
+  endedAt   DateTime? @db.Timestamptz(3)
+  cafe      Cafe      @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([cafeId, startedAt])
+  @@index([userId])
 }
 
 /// Game catalogue (shared by all arenas). Names are the same in both languages.
@@ -458,4 +501,109 @@ model ArenaImage {
   cafe      Cafe     @relation(fields: [cafeId], references: [id], onDelete: Cascade)
 
   @@index([cafeId, kind])
+}
+
+/// "Tell me when a station frees up" at a full arena. Removed once sent or expired.
+model FreeWatch {
+  id          String   @id @default(uuid())
+  cafeId      String
+  userId      String
+  /// PC / PS5 / ...; "" = any station.
+  stationType String   @default("")
+  expiresAt   DateTime @db.Timestamptz(3)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  cafe        Cafe     @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([cafeId, userId])
+  @@index([expiresAt])
+}
+
+/// A player's rating of an arena, only after a visit the arena marked "arrived".
+model ArenaReview {
+  id        String   @id @default(uuid())
+  cafeId    String
+  userId    String
+  bookingId String   @unique
+  stars     Int
+  comment   String?
+  hidden    Boolean  @default(false)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  cafe      Cafe     @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([cafeId, createdAt])
+}
+
+/// A tournament an arena announces; players sign up on the arena page.
+model Tournament {
+  id         String            @id @default(uuid())
+  cafeId     String
+  titleAr    String
+  titleEn    String
+  game       String
+  startsAt   DateTime          @db.Timestamptz(3)
+  maxPlayers Int
+  /// Entry fee in the arena currency; 0 = free.
+  fee        Decimal           @default(0) @db.Decimal(12, 2)
+  prizeAr    String            @default("")
+  prizeEn    String            @default("")
+  noteAr     String            @default("")
+  noteEn     String            @default("")
+  createdAt  DateTime          @default(now()) @db.Timestamptz(3)
+  cafe       Cafe              @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  entries    TournamentEntry[]
+
+  @@index([cafeId, startsAt])
+}
+
+model TournamentEntry {
+  tournamentId String
+  userId       String
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([tournamentId, userId])
+  @@index([userId])
+}
+
+/// A player follows (stars) an arena: new offers and tournaments reach them on Telegram.
+model ArenaFollow {
+  cafeId    String
+  userId    String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  cafe      Cafe     @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([cafeId, userId])
+  @@index([userId])
+}
+
+/// An arena owner asks to join the site (the /join form). The site admin
+/// approves it (a hidden arena is created with the requester as its owner) or
+/// declines it.
+model ArenaRequest {
+  id         String   @id @default(uuid())
+  userId     String
+  nameAr     String
+  nameEn     String
+  city       String
+  area       String
+  address    String
+  stations   Int
+  /// Booking software the arena uses now (CafePro, PanCafe...), if any.
+  software   String   @default("")
+  note       String   @default("")
+  /// PENDING | APPROVED | DECLINED
+  status     String   @default("PENDING")
+  /// The arena created on approval, or the admin's reason when declined.
+  cafeSlug   String?
+  reply      String?
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  decidedAt  DateTime? @db.Timestamptz(3)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([userId])
 }

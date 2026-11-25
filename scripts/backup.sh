@@ -13,6 +13,9 @@ export PGPASSWORD="$POSTGRES_PASSWORD"
 
 mkdir -p "$BACKUP_DIR"
 
+# Dumps hold players' personal data: only the owner of the files may read them.
+umask 077
+
 run_backup() {
   stamp="$(date -u +%Y%m%d_%H%M%S)"
   final="$BACKUP_DIR/cyberreserve_${stamp}.dump"

@@ -15,4 +15,6 @@ export const CreateBookingInput = z.object({
   /** "now", or an ISO time. */
   start: z.union([z.literal('now'), z.string().datetime()]),
   minutes: z.number().int().min(30).max(24 * 60),
+  /** VIP players only, with `pool`: book this many stations together (friends). */
+  count: z.number().int().min(1).max(5).default(1),
 });

@@ -14,6 +14,12 @@ export const BOOKING = {
   lateReminderBeforeMin: 30,
   /** ...and with no answer the booking is cancelled this long before the start. */
   answerByBeforeMin: 15,
+  /** The player always gets at least this long to answer once the question arrives. */
+  minAnswerMin: 10,
+  /** "Did not come" can only be marked this long after the start (or after a "now" booking was made). */
+  noShowGraceMin: 15,
+  /** Cancelling this many bookings in 24 hours pauses new bookings until the day has passed. */
+  maxCancelsPerDay: 5,
   /** A booking made less than this long before its start gets no reminder. */
   remindIfBookedAheadMin: 45,
   /** Night prices apply from 00:00 to 08:00 Damascus time. */
@@ -34,9 +40,12 @@ export type BookingCheck =
   | 'ok'
   | 'too_soon' // start is in the past
   | 'too_far' // more than 7 days ahead
-  | 'bad_length'; // not 1–12 h in 30-minute steps
+  | 'bad_length' // not 1–12 h in 30-minute steps
+  | 'bad_time'; // a chosen start that is not on the half hour
 
-export function checkRequest(start: Date, minutes: number, now: Date): BookingCheck {
+export function checkRequest(start: Date, minutes: number, now: Date, chosen = false): BookingCheck {
+  // A start picked from the times list is always on the half hour ("now" is not).
+  if (chosen && start.getTime() % (BOOKING.stepMinutes * MIN) !== 0) return 'bad_time';
   if (!Number.isInteger(minutes) || minutes < BOOKING.minMinutes || minutes > BOOKING.maxMinutes || minutes % BOOKING.stepMinutes !== 0) {
     return 'bad_length';
   }

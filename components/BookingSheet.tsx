@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import ShareBooking from '@/components/ShareBooking';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StationIcon } from '@/components/StationIcons';
 import type { PcView } from '@/lib/availability';
@@ -22,6 +23,8 @@ const DAYS = {
 export interface Viewer {
   signedIn: boolean;
   profileComplete: boolean;
+  /** The arena marked this player VIP: "any station" can book several at once. */
+  vip?: boolean;
 }
 
 type Taken = { start: Date; end: Date }[];
@@ -43,6 +46,7 @@ export default function BookingSheet({
   viewer,
   loginHref,
   onClose,
+  arenaName = '',
 }: {
   locale: Locale;
   slug: string;
@@ -55,6 +59,7 @@ export default function BookingSheet({
   viewer: Viewer;
   loginHref: string;
   onClose: () => void;
+  arenaName?: string;
 }) {
   const t = dictionary(locale);
   const ref = useRef<HTMLDialogElement>(null);
@@ -75,7 +80,9 @@ export default function BookingSheet({
   const [offers, setOffers] = useState<PriceOffer[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ start: string; end: string; price: string; pcNumber?: number } | null>(null);
+  const [done, setDone] = useState<{ start: string; end: string; price: string; pcNumber?: number; pcNumbers?: number[] } | null>(null);
+  // VIP: how many stations of this group to book together.
+  const [count, setCount] = useState(1);
 
   useEffect(() => {
     ref.current?.showModal();
@@ -144,7 +151,7 @@ export default function BookingSheet({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(
-          pool ? { slug, pool: { type: pool.type, groupId: pool.groupId }, start, minutes } : { slug, pcNumber: station.pcNumber, start, minutes },
+          pool ? { slug, pool: { type: pool.type, groupId: pool.groupId }, start, minutes, count } : { slug, pcNumber: station.pcNumber, start, minutes },
         ),
       });
       const body = await res.json().catch(() => ({}));
@@ -237,7 +244,16 @@ export default function BookingSheet({
                   {formatDamascusTime(new Date(done.start))}–{formatDamascusTime(new Date(done.end))}
                 </span>
               </p>
-              {assigned && (
+              {done.pcNumbers && done.pcNumbers.length > 1 ? (
+                <p className="mx-auto w-fit bg-cyan/10 px-4 py-2 font-display text-lg font-bold text-cyan shadow-[inset_0_0_0_1px_rgba(41,224,255,0.6)]">
+                  {t.book.yourStations(
+                    done.pcNumbers.map((n) => {
+                      const p = pool?.pcs.find((x) => x.pcNumber === n);
+                      return p ? t.station.name(p.type, p.typeIndex) : String(n);
+                    }),
+                  )}
+                </p>
+              ) : assigned && (
                 <p className="mx-auto w-fit bg-cyan/10 px-4 py-2 font-display text-lg font-bold text-cyan shadow-[inset_0_0_0_1px_rgba(41,224,255,0.6)]">
                   {t.book.yourStation(t.station.name(assigned.type, assigned.typeIndex))}
                 </p>
@@ -248,6 +264,16 @@ export default function BookingSheet({
                 const ask = reminderAt(new Date(), new Date(done.start));
                 return ask ? <p className="text-xs text-ink/80">{t.book.doneReminder(formatDamascusTime(ask))}</p> : null;
               })()}
+              {arenaName && (
+                <ShareBooking
+                  locale={locale}
+                  arena={arenaName}
+                  station={assigned ? t.station.name(assigned.type, assigned.typeIndex) : t.station.name(station.type, station.typeIndex)}
+                  when={`${dayLabel(new Date(done.start), Math.floor((+new Date(done.start) - +days[0]) / 86_400_000))} · ${formatDamascusTime(new Date(done.start))}–${formatDamascusTime(new Date(done.end))}`}
+                  slug={slug}
+                  className="justify-center pt-1"
+                />
+              )}
               <div className="flex justify-center gap-2 pt-2">
                 <Link href="/profile#bookings" className="btn-neon text-sm">
                   {t.book.myBookings}
@@ -288,7 +314,7 @@ export default function BookingSheet({
                         className={`${chip(i === dayIndex)} flex flex-col items-center gap-0.5 !px-1 leading-tight`}
                       >
                         <span className="truncate">{i === 0 ? t.book.today : i === 1 ? t.book.tomorrow : DAYS[locale][p.weekday]}</span>
-                        <span dir="ltr" className="font-hud text-[11px] opacity-70">
+                        <span dir="ltr" className="font-hud text-[0.6875rem] opacity-70">
                           {p.day}/{p.month}
                         </span>
                       </button>
@@ -415,6 +441,29 @@ export default function BookingSheet({
                     </p>
                   ) : null;
                 })()}
+                {pool && viewer.vip && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-amber-400/10 px-3 py-2 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.45)]">
+                    <span className="text-sm text-amber-200">
+                      👑 {t.book.vipCount}
+                      <span className="block text-xs text-amber-200/70">{t.book.vipCountHint}</span>
+                    </span>
+                    <span className="flex items-center gap-2" dir="ltr">
+                      <button type="button" className="grid h-8 w-8 place-items-center text-ink shadow-[inset_0_0_0_1px_rgba(251,191,36,0.5)] disabled:opacity-30" disabled={count <= 1} onClick={() => setCount((c) => c - 1)} aria-label="-">
+                        −
+                      </button>
+                      <span className="w-6 text-center font-hud text-lg text-ink">{count}</span>
+                      <button
+                        type="button"
+                        className="grid h-8 w-8 place-items-center text-ink shadow-[inset_0_0_0_1px_rgba(251,191,36,0.5)] disabled:opacity-30"
+                        disabled={count >= Math.min(5, pool.pcs.length)}
+                        onClick={() => setCount((c) => c + 1)}
+                        aria-label="+"
+                      >
+                        +
+                      </button>
+                    </span>
+                  </div>
+                )}
                 {error && (
                   <p role="alert" className="text-sm text-busy">
                     {error}
@@ -454,9 +503,9 @@ function HardwareStrip({ group, locale }: { group: GroupView; locale: Locale }) 
         aria-expanded={open === r.f}
         className={`w-full border-s-2 ps-2 text-start transition-colors ${open === r.f ? 'border-cyan' : 'border-violet/40 hover:border-cyan'}`}
       >
-        <span className="flex items-center gap-1 text-[11px] text-muted">
+        <span className="flex items-center gap-1 text-[0.6875rem] text-muted">
           {t.zones.fields[r.f]}
-          <span aria-hidden="true" className="grid h-3.5 w-3.5 place-items-center rounded-full text-[9px] shadow-[inset_0_0_0_1px_rgba(140,151,196,0.6)]">
+          <span aria-hidden="true" className="grid h-3.5 w-3.5 place-items-center rounded-full text-[0.5625rem] shadow-[inset_0_0_0_1px_rgba(140,151,196,0.6)]">
             ?
           </span>
         </span>
@@ -467,7 +516,7 @@ function HardwareStrip({ group, locale }: { group: GroupView; locale: Locale }) 
       {open === r.f && (
         <span
           role="tooltip"
-          className="panel-in absolute inset-x-0 top-full z-20 mt-1.5 block bg-[#0B0F24] px-2.5 py-2 text-[11px] leading-relaxed text-ink shadow-[inset_0_0_0_1px_rgba(41,224,255,0.6),0_12px_28px_-10px_rgba(0,0,0,0.9)]"
+          className="panel-in absolute inset-x-0 top-full z-20 mt-1.5 block bg-[#0B0F24] px-2.5 py-2 text-[0.6875rem] leading-relaxed text-ink shadow-[inset_0_0_0_1px_rgba(41,224,255,0.6),0_12px_28px_-10px_rgba(0,0,0,0.9)]"
         >
           {t.zones.explain[r.f]}
         </span>
@@ -481,17 +530,17 @@ function HardwareStrip({ group, locale }: { group: GroupView; locale: Locale }) 
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="flex min-w-0 items-center gap-2 text-xs font-semibold text-ink">
-          {group.isVip && <span className="bg-gold px-1.5 py-px font-hud text-[10px] font-bold text-void">{t.zones.vip}</span>}
+          {group.isVip && <span className="bg-gold px-1.5 py-px font-hud text-[0.625rem] font-bold text-void">{t.zones.vip}</span>}
           <span className="truncate">{name || t.station.typeTitle[group.type]}</span>
         </p>
         {extra.length > 0 && (
-          <button type="button" onClick={() => setAll((x) => !x)} className="shrink-0 text-[11px] text-cyan hover:underline" aria-expanded={all}>
+          <button type="button" onClick={() => setAll((x) => !x)} className="shrink-0 text-[0.6875rem] text-cyan hover:underline" aria-expanded={all}>
             {all ? `${t.zones.less} ▴` : `${t.zones.more} ▾`}
           </button>
         )}
       </div>
       <ul className="grid grid-cols-2 gap-x-3 gap-y-2">{(all ? [...rows, ...extra] : rows).map(item)}</ul>
-      <p className="mt-2 text-[10px] text-muted/80">{t.zones.hint}</p>
+      <p className="mt-2 text-[0.625rem] text-muted/80">{t.zones.hint}</p>
     </div>
   );
 }

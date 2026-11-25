@@ -131,6 +131,9 @@ export function SiteFooter({ locale }: { locale: Locale }) {
       <div className="flex flex-wrap items-center justify-between gap-4 border-t border-line pt-4">
         <Logo label={t.nav.home} />
         <nav aria-label={t.nav.terms} className="flex flex-wrap items-center gap-5">
+          <Link href="/join" className="text-cyan hover:text-ink">
+            {t.join.footerLink}
+          </Link>
           <Link href="/terms" className="hover:text-ink">
             {t.profile.termsLink}
           </Link>

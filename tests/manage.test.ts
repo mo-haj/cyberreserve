@@ -38,8 +38,14 @@ test('uploads: only real PNG/JPEG/WebP, within size', () => {
   assert.equal(sniffImage(svg), null);
   assert.deepEqual(checkImage('logo', svg), { ok: false, error: 'image_type' });
   assert.deepEqual(checkImage('logo', new Uint8Array(600 * 1024).fill(0xff)), { ok: false, error: 'image_size' });
-  const bigJpeg = new Uint8Array(1024 * 1024);
-  bigJpeg.set(jpg);
-  assert.ok(checkImage('cover', bigJpeg).ok, '1 MB banner is fine');
-  assert.ok(!checkImage('logo', bigJpeg).ok, '1 MB logo is too big');
+  // A real JPEG start: SOI, then a SOF0 frame header with height and width.
+  const jpegOf = (w: number, h: number, size: number) => {
+    const b = new Uint8Array(size);
+    b.set([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, h >> 8, h & 255, w >> 8, w & 255, 3]);
+    return b;
+  };
+  assert.ok(checkImage('cover', jpegOf(1600, 900, 1024 * 1024)).ok, '1 MB banner is fine');
+  assert.ok(!checkImage('logo', jpegOf(512, 512, 1024 * 1024)).ok, '1 MB logo is too big');
+  assert.deepEqual(checkImage('cover', jpegOf(20000, 20000, 300 * 1024)), { ok: false, error: 'image_size' }, 'a small file declaring a huge picture');
+  assert.deepEqual(checkImage('cover', jpg), { ok: false, error: 'image_type' }, 'no size in the header = not a real image');
 });

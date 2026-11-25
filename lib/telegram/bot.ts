@@ -20,6 +20,8 @@ import { LoginStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { now } from '@/lib/time';
 import { sendText, tg } from '@/lib/telegram/api';
+import { saveRating, saveReviewComment } from '@/lib/engage';
+import { ENGAGE_TEXT } from '@/lib/engage-texts';
 import { cancelByPlayer, confirmComing, markByArena, upcomingForBot } from '@/lib/booking/service';
 import { supportContactFor } from '@/lib/legal';
 import { ARENA_TEXT, BOOKING_TEXT, CANCEL_REASONS } from '@/lib/booking/texts';
@@ -73,7 +75,7 @@ export const TelegramUpdate = z.object({
       id: z.string(),
       from: From,
       data: z.string().optional(),
-      message: z.object({ chat: z.object({ id: z.number() }) }).optional(),
+      message: z.object({ chat: z.object({ id: z.number() }), message_id: z.number().optional() }).optional(),
     })
     .optional(),
 });
@@ -136,12 +138,44 @@ async function onText(chatId: number, from: FromT, text: string) {
   let t: Text = BOT_TEXT[botLocale(from.language_code)];
   const telegramUserId = String(from.id);
 
-  // An arena member was asked to type why they cancel a booking.
-  if (text.trim() && !text.startsWith('/')) {
-    const pending = await prisma.telegramPending.findUnique({ where: { chatId: String(chatId) } });
+  // An arena member was asked to type why they cancel a booking. Never take a
+  // sign-in code (any format), a command, a menu button, or anything typed
+  // while a sign-in is under way as the reason; and always ask before cancelling.
+  if (text.trim() && !text.startsWith('/') && parseTypedCode(text) === null && !parseStartPayload(text)) {
+    const menuButton = Object.values(MEMBER_BUTTONS).some((b) => (Object.values(b) as string[]).includes(text.trim()));
+    const pending = menuButton ? null : await prisma.telegramPending.findUnique({ where: { chatId: String(chatId) } });
+    if (pending && pending.kind === 'review_comment' && pending.expiresAt > now()) {
+      const signingIn = await prisma.loginRequest.count({
+        where: { telegramUserId, status: { in: [LoginStatus.PENDING, LoginStatus.AWAITING_CONTACT] }, expiresAt: { gt: now() } },
+      });
+      if (!signingIn) {
+        await saveReviewComment(pending.bookingId, text);
+        await prisma.telegramPending.deleteMany({ where: { chatId: String(chatId) } });
+        const lang = (await prisma.booking.findUnique({ where: { id: pending.bookingId }, select: { locale: true } }))?.locale === 'en' ? 'en' : 'ar';
+        await sendText(chatId, ENGAGE_TEXT[lang].rateDone);
+        return;
+      }
+    }
     if (pending && pending.kind === 'cancel_reason' && pending.expiresAt > now()) {
-      await prisma.telegramPending.delete({ where: { chatId: String(chatId) } }).catch(() => undefined);
-      return cancelWithReason(chatId, telegramUserId, pending.bookingId, text.trim().slice(0, 300));
+      const signingIn = await prisma.loginRequest.count({
+        where: { telegramUserId, status: { in: [LoginStatus.PENDING, LoginStatus.AWAITING_CONTACT] }, expiresAt: { gt: now() } },
+      });
+      if (!signingIn) {
+        const reason = text.trim().slice(0, 300);
+        await prisma.telegramPending.update({
+          where: { chatId: String(chatId) },
+          data: { kind: 'cancel_confirm', text: reason, expiresAt: new Date(now().getTime() + 10 * 60_000) },
+        });
+        await sendText(chatId, ARENA_TEXT.confirmReason(reason), {
+          inline_keyboard: [
+            [
+              { text: ARENA_TEXT.confirmYes, callback_data: `bkr:y:${pending.bookingId}` },
+              { text: ARENA_TEXT.confirmNo, callback_data: `bkr:k:${pending.bookingId}` },
+            ],
+          ],
+        });
+        return;
+      }
     }
   }
 
@@ -245,11 +279,40 @@ function langKeyboard(shortId: string) {
   };
 }
 
+/** Stars after a visit (rv:<1-5>:<bookingId>), or "skip the comment" (rv:s:<bookingId>). */
+async function onRating(cb: NonNullable<TelegramUpdate['callback_query']>, chatId: number, data: string) {
+  await tg('answerCallbackQuery', { callback_query_id: cb.id });
+  const [, what, bookingId] = data.split(':');
+  if (!bookingId) return;
+  if (what === 's') {
+    await prisma.telegramPending.deleteMany({ where: { chatId: String(chatId), kind: 'review_comment' } });
+    const lang = (await prisma.booking.findUnique({ where: { id: bookingId }, select: { locale: true } }))?.locale === 'en' ? 'en' : 'ar';
+    await sendText(chatId, ENGAGE_TEXT[lang].rateDone);
+    return;
+  }
+  const r = await saveRating(String(cb.from.id), bookingId, Number(what));
+  if (!r.ok) {
+    await sendText(chatId, ENGAGE_TEXT[botLocale(cb.from.language_code)].rateFail);
+    return;
+  }
+  // Remove the star buttons from the question.
+  if (cb.message?.message_id) await tg('editMessageReplyMarkup', { chat_id: chatId, message_id: cb.message.message_id, reply_markup: { inline_keyboard: [] } }).catch(() => undefined);
+  await prisma.telegramPending.upsert({
+    where: { chatId: String(chatId) },
+    create: { chatId: String(chatId), kind: 'review_comment', bookingId, expiresAt: new Date(now().getTime() + 15 * 60_000) },
+    update: { kind: 'review_comment', bookingId, text: null, expiresAt: new Date(now().getTime() + 15 * 60_000) },
+  });
+  await sendText(chatId, ENGAGE_TEXT[r.lang].rateThanks(Number(what)), {
+    inline_keyboard: [[{ text: ENGAGE_TEXT[r.lang].rateSkip, callback_data: `rv:s:${bookingId}` }]],
+  });
+}
+
 /** Language buttons, booking buttons; anything else (e.g. the old number-picking flow): start again. */
 async function onCallback(cb: NonNullable<TelegramUpdate['callback_query']>) {
   const chatId = cb.message?.chat.id ?? cb.from.id;
   const data = cb.data ?? '';
   if (data.startsWith('bkr:')) return onCancelReason(cb, chatId, data);
+  if (data.startsWith('rv:')) return onRating(cb, chatId, data);
   if (data.startsWith('bp:') || data.startsWith('bk:')) return onBookingButton(cb, chatId, data);
   if (data === 'm:bookings' || data === 'm:support') {
     await tg('answerCallbackQuery', { callback_query_id: cb.id });
@@ -300,18 +363,27 @@ const REASON_KEY: Record<string, string> = { m: 'k:maintenance', t: 'k:taken', x
 
 /** bkr:<m|t|x|o|n>:<id>: the reason picked after pressing "cancel" on a booking. */
 async function onCancelReason(cb: NonNullable<TelegramUpdate['callback_query']>, chatId: number, data: string) {
-  const m = /^bkr:([mtxon]):([0-9a-f-]{36})$/.exec(data);
+  const m = /^bkr:([mtxonyk]):([0-9a-f-]{36})$/.exec(data);
   if (!m) {
     await tg('answerCallbackQuery', { callback_query_id: cb.id });
     return;
   }
   const [, k, bookingId] = m;
   await tg('answerCallbackQuery', { callback_query_id: cb.id });
+  if (k === 'y' || k === 'k') {
+    // Yes / no to the reason typed a moment ago (only this chat's own pending reason).
+    const pending = await prisma.telegramPending.findUnique({ where: { chatId: String(chatId) } });
+    const valid = pending?.kind === 'cancel_confirm' && pending.bookingId === bookingId && pending.expiresAt > now();
+    await prisma.telegramPending.deleteMany({ where: { chatId: String(chatId) } });
+    if (!valid) return void (await sendText(chatId, ARENA_TEXT.tooLate));
+    if (k === 'k') return void (await sendText(chatId, ARENA_TEXT.keptBooking));
+    return cancelWithReason(chatId, String(cb.from.id), bookingId, pending!.text ?? '');
+  }
   if (k === 'o') {
     await prisma.telegramPending.upsert({
       where: { chatId: String(chatId) },
       create: { chatId: String(chatId), kind: 'cancel_reason', bookingId, expiresAt: new Date(now().getTime() + 10 * 60_000) },
-      update: { kind: 'cancel_reason', bookingId, expiresAt: new Date(now().getTime() + 10 * 60_000) },
+      update: { kind: 'cancel_reason', bookingId, text: null, expiresAt: new Date(now().getTime() + 10 * 60_000) },
     });
     await sendText(chatId, ARENA_TEXT.typeReason);
     return;
@@ -323,7 +395,7 @@ async function cancelWithReason(chatId: number, telegramUserId: string, bookingI
   const user = await prisma.user.findUnique({ where: { telegramChatId: telegramUserId }, select: { id: true } });
   if (!user) return void (await sendText(chatId, ARENA_TEXT.notAllowed));
   const result = await markByArena(user.id, bookingId, 'cancel', { reason });
-  if (!result.ok) return void (await sendText(chatId, result.error === 'not_allowed' ? ARENA_TEXT.notAllowed : ARENA_TEXT.tooLate));
+  if (!result.ok) return void (await sendText(chatId, result.error === 'not_allowed' ? ARENA_TEXT.notAllowed : result.error === 'too_early' ? ARENA_TEXT.tooEarly : ARENA_TEXT.tooLate));
   await sendText(chatId, ARENA_TEXT.doneCancel(result.player));
 }
 
@@ -374,7 +446,7 @@ async function onBookingButton(cb: NonNullable<TelegramUpdate['callback_query']>
   if (!result.ok) {
     await tg('answerCallbackQuery', {
       callback_query_id: cb.id,
-      text: result.error === 'not_allowed' ? ARENA_TEXT.notAllowed : ARENA_TEXT.tooLate,
+      text: result.error === 'not_allowed' ? ARENA_TEXT.notAllowed : result.error === 'too_early' ? ARENA_TEXT.tooEarly : ARENA_TEXT.tooLate,
       show_alert: true,
     });
     return;
@@ -421,9 +493,14 @@ async function onContact(
   const telegramChatId = String(from.id);
   const name = displayName(from.first_name, from.last_name);
 
+  // The Telegram account id never changes; a phone number can be given to
+  // someone else by the carrier. So a known number from a DIFFERENT Telegram
+  // account never takes over the old account: a player gets a fresh account
+  // (the old one keeps its history without the number); an account that
+  // manages an arena is not signed in at all.
   const userId = await prisma.$transaction(async (tx) => {
     const byTelegram = await tx.user.findUnique({ where: { telegramChatId } });
-    const byPhone = await tx.user.findUnique({ where: { phone } });
+    const byPhone = await tx.user.findUnique({ where: { phone }, include: { arenas: { select: { cafeId: true }, take: 1 } } });
     if (byTelegram) {
       // Keep the phone if it is free or already theirs.
       const phoneFree = !byPhone || byPhone.id === byTelegram.id;
@@ -433,14 +510,23 @@ async function onContact(
       });
       return byTelegram.id;
     }
-    if (byPhone) {
-      // Same verified number, new Telegram account (e.g. reinstalled): attach it.
+    if (byPhone && !byPhone.telegramChatId) {
+      // A number added before Telegram sign-in existed: attach it.
       await tx.user.update({ where: { id: byPhone.id }, data: { telegramChatId, name } });
       return byPhone.id;
+    }
+    if (byPhone) {
+      if (byPhone.arenas.length > 0) return 'locked' as const;
+      await tx.user.update({ where: { id: byPhone.id }, data: { phone: null } });
     }
     const created = await tx.user.create({ data: { name, phone, telegramChatId } });
     return created.id;
   });
+  if (userId === 'locked') {
+    await prisma.auditLog.create({ data: { actorType: 'SYSTEM', action: 'login.phone_locked', details: { telegram: telegramChatId } } }).catch(() => undefined);
+    await sendText(chatId, t.phoneLocked, REMOVE_KEYBOARD);
+    return;
+  }
 
   await prisma.loginRequest.updateMany({
     where: { id: request.id, status: LoginStatus.AWAITING_CONTACT },

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { StationIcon } from '@/components/StationIcons';
 import { CITIES, cityName } from '@/lib/cities';
 import { dictionary, pick, type Locale } from '@/lib/i18n';
@@ -10,7 +11,8 @@ import { fieldsFor, groupName, groupSummary, numberRanges, type SpecField } from
 import { googleMapsUrl } from '@/lib/maps';
 import { parseLatLng } from '@/lib/manage/rules';
 import { Field, IconButton, TextArea } from '@/components/manage/fields';
-import { Access, Offers, Players, Posts } from '@/components/manage/tabs';
+import { StatsTab, TournamentsTab } from '@/components/manage/engage';
+import { Access, Activity, Offers, Players, Posts } from '@/components/manage/tabs';
 import { StationPanel, StationTile } from '@/components/manage/floor';
 import PlayerBadge from '@/components/PlayerBadge';
 import { CancelDialog } from '@/components/manage/moderation';
@@ -23,7 +25,7 @@ import { formatDamascusTime, toDamascusParts } from '@/lib/time';
 // details and games. Every change goes through POST /api/manage/<slug>,
 // which answers with the fresh data.
 
-type Tab = 'stations' | 'zones' | 'bookings' | 'players' | 'posts' | 'offers' | 'arena' | 'games' | 'owners';
+type Tab = 'stations' | 'zones' | 'bookings' | 'players' | 'posts' | 'offers' | 'arena' | 'games' | 'owners' | 'activity' | 'tournaments' | 'stats';
 const TYPES = ['PC', 'PS5', 'PS4', 'XBOX'] as const;
 const POLL_MS = 10_000;
 
@@ -96,6 +98,17 @@ export default function ManagePanel({
     return () => clearInterval(timer);
   }, [slug]);
 
+  // The bookings list on screen (tab open, window visible) counts as "seen".
+  const { sawList, highlighted } = alerts;
+  const unseen = [...highlighted.values()].some((v) => v === null);
+  useEffect(() => {
+    if (tab !== 'bookings' || !unseen) return;
+    const check = () => !document.hidden && sawList();
+    check();
+    document.addEventListener('visibilitychange', check);
+    return () => document.removeEventListener('visibilitychange', check);
+  }, [tab, unseen, sawList]);
+
   const bookingsLabel = `${m.tabs.bookings}${data.bookings.length ? ` (${data.bookings.length})` : ''}`;
   // Tabs grouped by what the owner is doing: running today, editing the public
   // page, or looking after people.
@@ -117,11 +130,17 @@ export default function ManagePanel({
               { key: 'offers' as Tab, label: m.tabs.offers },
               { key: 'posts' as Tab, label: m.tabs.posts },
               { key: 'games' as Tab, label: m.tabs.games },
+              { key: 'tournaments' as Tab, label: m.tabs.tournaments },
             ],
           },
           {
             name: m.groups.people,
-            tabs: [{ key: 'players' as Tab, label: m.tabs.players }, ...(superAdmin ? [{ key: 'owners' as Tab, label: m.tabs.owners }] : [])],
+            tabs: [
+              { key: 'players' as Tab, label: m.tabs.players },
+              { key: 'stats' as Tab, label: m.tabs.stats },
+              { key: 'activity' as Tab, label: m.tabs.activity },
+              ...(superAdmin ? [{ key: 'owners' as Tab, label: m.tabs.owners }] : []),
+            ],
           },
         ]
       : []),
@@ -155,7 +174,10 @@ export default function ManagePanel({
             </div>
           ))}
         </nav>
-        <AlertsToggle m={m} on={alerts.on} onToggle={alerts.toggle} onTest={alerts.askSystem} />
+        <div className="flex flex-wrap items-center gap-3">
+          <ShiftButton m={m} since={data.myShift} action={action} />
+          <AlertsToggle m={m} on={alerts.on} onToggle={alerts.toggle} onTest={alerts.askSystem} />
+        </div>
       </div>
       {!data.isPublished && (
         <div className="panel-in flex flex-wrap items-center justify-between gap-3 bg-amber-400/10 px-4 py-3 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.55)]">
@@ -182,18 +204,21 @@ export default function ManagePanel({
       )}
       {tab === 'stations' && <Stations locale={locale} m={m} data={data} owner={owner} action={action} />}
       {tab === 'zones' && owner && <Zones locale={locale} slug={slug} m={m} data={data} setData={setData} action={action} />}
-      {tab === 'bookings' && <Bookings locale={locale} m={m} data={data} action={action} canBan={owner} />}
+      {tab === 'bookings' && <Bookings locale={locale} m={m} data={data} action={action} canBan={owner} highlighted={highlighted} />}
       {tab === 'arena' && owner && (
         <>
           <Images slug={slug} m={m} data={data} setData={setData} setError={action.setError} />
           <ArenaForm locale={locale} m={m} data={data} action={action} />
         </>
       )}
-      {tab === 'games' && owner && <GamesForm locale={locale} slug={slug} m={m} data={data} setData={setData} action={action} />}
+      {tab === 'games' && owner && <GamesForm locale={locale} slug={slug} m={m} data={data} setData={setData} action={action} superAdmin={superAdmin} />}
       {tab === 'offers' && owner && <Offers locale={locale} m={m} data={data} action={action} />}
       {tab === 'players' && owner && <Players locale={locale} m={m} data={data} action={action} />}
       {tab === 'posts' && owner && <Posts locale={locale} slug={slug} m={m} data={data} setData={setData} action={action} />}
       {tab === 'owners' && superAdmin && <Access m={m} data={data} action={action} />}
+      {tab === 'activity' && owner && <Activity m={m} slug={slug} />}
+      {tab === 'tournaments' && owner && <TournamentsTab locale={locale} m={m} data={data} action={action} />}
+      {tab === 'stats' && owner && <StatsTab m={m} slug={slug} superAdmin={superAdmin} action={action} />}
     </div>
   );
 }
@@ -446,11 +471,31 @@ function AddStations({
   );
 }
 
+// ------------------------------------------------------------------ shift
+
+/** Start / end the viewer's own shift; everything they do in it is logged under it. */
+function ShiftButton({ m, since, action }: { m: ManageText; since: string | null; action: Action }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`text-xs ${since ? 'text-free' : 'text-muted'}`}>{since ? m.shiftOn(formatDamascusTime(new Date(since))) : m.shiftOff}</span>
+      <button
+        type="button"
+        className={since ? 'btn-ghost text-sm' : 'btn-neon text-sm'}
+        disabled={!!action.busy}
+        onClick={() => action.run('shift', { action: 'shift', on: !since })}
+      >
+        {since ? m.shiftEnd : m.shiftStart}
+      </button>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ arena
 
 function ArenaForm({ locale, m, data, action }: { locale: Locale; m: ManageText; data: ManageData; action: Action }) {
   const [f, setF] = useState(data.arena);
   const [saved, setSaved] = useState(false);
+  const router = useRouter();
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setSaved(false);
     setF((x) => ({ ...x, [k]: e.target.value }));
@@ -461,7 +506,10 @@ function ArenaForm({ locale, m, data, action }: { locale: Locale; m: ManageText;
     e.preventDefault();
     const { slug: _slug, ...fields } = f;
     void _slug;
-    if (await action.run('arena', { action: 'editArena', ...fields })) setSaved(true);
+    if (await action.run('arena', { action: 'editArena', ...fields })) {
+      setSaved(true);
+      router.refresh(); // the page title shows the new name
+    }
   }
 
   const pairs: [keyof typeof f, keyof typeof f, number][] = [
@@ -494,6 +542,45 @@ function ArenaForm({ locale, m, data, action }: { locale: Locale; m: ManageText;
               {pick(locale, c.en, c.ar)}
             </button>
           ))}
+        </div>
+      </fieldset>
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-semibold text-ink">{m.openingHours}</legend>
+        <p className="text-xs text-muted">{m.openingHoursHint}</p>
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="text-sm text-muted">
+            {m.opensAt}
+            <input
+              type="time"
+              value={f.openTime}
+              onChange={set('openTime')}
+              dir="ltr"
+              className="mt-1 block bg-void/70 px-3 py-2 font-hud text-ink shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] outline-none focus:shadow-[inset_0_0_0_1px_rgba(41,224,255,0.8)]"
+            />
+          </label>
+          <label className="text-sm text-muted">
+            {m.closesAt}
+            <input
+              type="time"
+              value={f.closeTime}
+              onChange={set('closeTime')}
+              dir="ltr"
+              className="mt-1 block bg-void/70 px-3 py-2 font-hud text-ink shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] outline-none focus:shadow-[inset_0_0_0_1px_rgba(41,224,255,0.8)]"
+            />
+          </label>
+          <button
+            type="button"
+            aria-pressed={!!f.openTime && f.openTime === f.closeTime}
+            onClick={() => setF((x) => ({ ...x, openTime: '00:00', closeTime: '00:00' }))}
+            className={`city-option px-3 py-2 text-sm ${f.openTime && f.openTime === f.closeTime ? 'city-option-on text-ink' : 'text-muted hover:text-ink'}`}
+          >
+            {m.open24}
+          </button>
+          {(f.openTime || f.closeTime) && (
+            <button type="button" className="text-xs text-muted hover:text-busy" onClick={() => setF((x) => ({ ...x, openTime: '', closeTime: '' }))}>
+              {m.clearHours}
+            </button>
+          )}
         </div>
       </fieldset>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -533,6 +620,7 @@ function GamesForm({
   data,
   setData,
   action,
+  superAdmin = false,
 }: {
   locale: Locale;
   slug: string;
@@ -540,6 +628,7 @@ function GamesForm({
   data: ManageData;
   setData: (d: ManageData) => void;
   action: Action;
+  superAdmin?: boolean;
 }) {
   const [selected, setSelected] = useState(new Set(data.games.selected));
   const [query, setQuery] = useState('');
@@ -632,7 +721,7 @@ function GamesForm({
             </p>
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {own.map((g) => (
-                <OwnGame key={g.slug} locale={locale} slug={slug} m={m} game={g} setData={setData} action={action} />
+                <OwnGame key={g.slug} locale={locale} slug={slug} m={m} game={g} setData={setData} action={action} superAdmin={superAdmin} />
               ))}
             </ul>
           </div>
@@ -683,7 +772,7 @@ function GamesForm({
                 >
                   <span
                     aria-hidden="true"
-                    className={`grid h-4 w-4 shrink-0 place-items-center text-[10px] ${on ? 'bg-cyan text-void' : 'shadow-[inset_0_0_0_1px_rgba(157,92,255,0.5)]'}`}
+                    className={`grid h-4 w-4 shrink-0 place-items-center text-[0.625rem] ${on ? 'bg-cyan text-void' : 'shadow-[inset_0_0_0_1px_rgba(157,92,255,0.5)]'}`}
                   >
                     {on ? '✓' : ''}
                   </span>
@@ -708,6 +797,7 @@ function OwnGame({
   game,
   setData,
   action,
+  superAdmin = false,
 }: {
   locale: Locale;
   slug: string;
@@ -715,6 +805,7 @@ function OwnGame({
   game: ManageData['games']['catalogue'][number];
   setData: (d: ManageData) => void;
   action: Action;
+  superAdmin?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -776,6 +867,17 @@ function OwnGame({
         </p>
         <p className="truncate text-xs text-muted">{pick(locale, game.genreEn, game.genreAr)}</p>
       </div>
+      {superAdmin && (
+        <button
+          type="button"
+          disabled={!!action.busy}
+          onClick={() => action.run(`promote-${game.slug}`, { action: 'promoteGame', slug: game.slug })}
+          title={m.promoteHint}
+          className="shrink-0 px-2 py-1 text-xs font-semibold text-cyan shadow-[inset_0_0_0_1px_rgba(41,224,255,0.5)] transition-colors hover:bg-cyan/15"
+        >
+          {m.promoteGame}
+        </button>
+      )}
       <button
         type="button"
         disabled={!!action.busy}
@@ -813,7 +915,22 @@ function ConfirmChip({ m, state, at }: { m: ManageText; state: keyof typeof CONF
   );
 }
 
-function Bookings({ locale, m, data, action, canBan = false }: { locale: Locale; m: ManageText; data: ManageData; action: Action; canBan?: boolean }) {
+function Bookings({
+  locale,
+  m,
+  data,
+  action,
+  canBan = false,
+  highlighted,
+}: {
+  locale: Locale;
+  m: ManageText;
+  data: ManageData;
+  action: Action;
+  canBan?: boolean;
+  /** New bookings to highlight (fades 30 s after the list was seen). */
+  highlighted: Map<string, number | null>;
+}) {
   const [cancelling, setCancelling] = useState<ManageData['bookings'][number] | null>(null);
   if (data.bookings.length === 0) {
     return (
@@ -832,7 +949,7 @@ function Bookings({ locale, m, data, action, canBan = false }: { locale: Locale;
           const p = toDamascusParts(s);
           const working = action.busy?.endsWith(b.id);
           return (
-            <li key={b.id} className={`hud p-4 ${working ? 'opacity-60' : ''}`}>
+            <li key={b.id} className={`hud p-4 transition-shadow duration-700 ${working ? 'opacity-60' : ''} ${highlighted.has(b.id) ? 'booking-new' : ''}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-semibold text-ink">
@@ -1142,7 +1259,7 @@ function Zones({
                 <div className="min-w-0 flex-1">
                   <p className="flex flex-wrap items-center gap-2 font-semibold text-ink">
                     {groupName(g, locale) || m.unnamed}
-                    {g.isVip && <span className="bg-gold px-1.5 py-px font-hud text-[10px] font-bold text-void">VIP</span>}
+                    {g.isVip && <span className="bg-gold px-1.5 py-px font-hud text-[0.625rem] font-bold text-void">VIP</span>}
                   </p>
                   <p className="text-sm text-muted">
                     <bdi dir="ltr" className="font-hud text-ink">
@@ -1450,7 +1567,7 @@ function ZoneEditor({
                       className={`city-option flex flex-col items-start px-3 py-2 text-start text-sm ${on ? 'city-option-on text-ink' : 'text-muted hover:text-ink'}`}
                     >
                       {name(s)}
-                      {other && !on && <span className="truncate text-[11px] text-muted/80">{m.inOther(groupName(other, locale) || m.unnamed)}</span>}
+                      {other && !on && <span className="truncate text-[0.6875rem] text-muted/80">{m.inOther(groupName(other, locale) || m.unnamed)}</span>}
                     </button>
                   );
                 })}

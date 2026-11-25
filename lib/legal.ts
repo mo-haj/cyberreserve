@@ -144,7 +144,7 @@ export function privacyDoc(locale: 'ar' | 'en', contact: string): LegalDoc {
           title: 'من يرى بياناتك',
           body: [
             'الصالة التي تحجز فيها ترى اسمك الكامل واسم اللاعب ومدينتك ورقم هاتفك وتفاصيل الحجز. الصالات الأخرى لا ترى شيئاً.',
-            'لا نشارك بياناتك مع أي طرف آخر إلا إذا ألزمنا القانون بذلك. تيليغرام يعالج الرسائل بينك وبين البوت وفق سياسته الخاصة.',
+            'لا نبيع بياناتك ولا نشاركها إلا مع مزوّدي الخدمة اللازمين لتشغيل الموقع: Vercel (الاستضافة) وNeon (قاعدة البيانات) وتيليغرام (الرسائل بينك وبين البوت، وفق سياسته الخاصة)، أو إذا ألزمنا القانون بذلك. خريطة موقع الصالة تُعرض من OpenStreetMap، فيصله عنوان IP الخاص بك عند فتح صفحة الصالة.',
           ],
         },
         {
@@ -194,7 +194,7 @@ export function privacyDoc(locale: 'ar' | 'en', contact: string): LegalDoc {
         title: 'Who sees your data',
         body: [
           'The arena you book at sees your full name, player name, city, phone number and the booking details. Other arenas see nothing.',
-          'We do not share your data with anyone else unless the law requires it. Telegram processes the messages between you and the bot under its own policy.',
+          'We do not sell your data. We share it only with the providers needed to run the site: Vercel (hosting), Neon (database) and Telegram (the messages between you and the bot, under its own policy), or when the law requires it. The arena map is loaded from OpenStreetMap, which receives your IP address when you open an arena page.',
         ],
       },
       {

@@ -19,12 +19,23 @@ export function rateLimit(key: string, limit: number, windowMs: number, nowMs: n
   return true;
 }
 
-/** Visitor IP: Cloudflare's header first, then the proxy chain, else "local". */
+/**
+ * Visitor IP, from a header the visitor cannot forge where we run:
+ * - Vercel sets x-real-ip / x-vercel-forwarded-for itself (a client value is replaced);
+ * - Cloudflare's cf-connecting-ip only counts when BEHIND_CLOUDFLARE=1, because
+ *   anywhere else a visitor can simply send that header;
+ * - otherwise the LAST hop of x-forwarded-for: the one our own proxy (tunnel)
+ *   added. Earlier hops are whatever the visitor sent.
+ */
 export function clientIp(headers: Headers): string {
-  return (
-    headers.get('cf-connecting-ip') ??
-    headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    headers.get('x-real-ip') ??
-    'local'
-  );
+  const first = (v: string | null) => v?.split(',')[0]?.trim() || null;
+  if (process.env.VERCEL) {
+    return first(headers.get('x-real-ip')) ?? first(headers.get('x-vercel-forwarded-for')) ?? first(headers.get('x-forwarded-for')) ?? 'local';
+  }
+  if (process.env.BEHIND_CLOUDFLARE === '1') {
+    const cf = first(headers.get('cf-connecting-ip'));
+    if (cf) return cf;
+  }
+  const hops = headers.get('x-forwarded-for')?.split(',').map((h) => h.trim()).filter(Boolean) ?? [];
+  return hops[hops.length - 1] ?? first(headers.get('x-real-ip')) ?? 'local';
 }

@@ -51,6 +51,8 @@ export default function LiveFloor({
   size = 'full',
   loginHref = '/login',
   groups: zones = [],
+  arenaName = '',
+  vip = false,
 }: {
   slug: string;
   /** Data rendered on the server; null means "fetch right away". */
@@ -62,6 +64,10 @@ export default function LiveFloor({
   loginHref?: string;
   /** Arena zones, so the booking popup can show the station's hardware. */
   groups?: GroupView[];
+  /** For "share my booking". */
+  arenaName?: string;
+  /** The viewer is VIP at this arena (group booking). */
+  vip?: boolean;
 }) {
   const t = dictionary(locale);
   const [data, setData] = useState<LiveData | null>(initial);
@@ -200,7 +206,7 @@ export default function LiveFloor({
                       </span>
                       <StationIcon type={p.type} className={compact ? 'mt-2 h-7 w-8' : 'mt-3 h-9 w-10 sm:h-11 sm:w-12'} />
                       {!compact && (
-                        <span className="text-[11px] leading-tight text-ink/75">{until ? t.station.until(until) : t.status[p.status]}</span>
+                        <span className="text-[0.6875rem] leading-tight text-ink/75">{until ? t.station.until(until) : t.status[p.status]}</span>
                       )}
                     </button>
                   </li>
@@ -218,7 +224,8 @@ export default function LiveFloor({
           slug={slug}
           pool={pool}
           group={zones.find((g) => g.id === pool.groupId) ?? null}
-          viewer={{ signedIn, profileComplete }}
+          viewer={{ signedIn, profileComplete, vip }}
+          arenaName={arenaName}
           loginHref={loginHref}
           onClose={() => setPool(null)}
         />
@@ -231,7 +238,8 @@ export default function LiveFloor({
           slug={slug}
           station={pc}
           group={zones.find((g) => g.id === pc.groupId) ?? null}
-          viewer={{ signedIn, profileComplete }}
+          viewer={{ signedIn, profileComplete, vip }}
+          arenaName={arenaName}
           loginHref={loginHref}
           onClose={() => setSelected(null)}
         />

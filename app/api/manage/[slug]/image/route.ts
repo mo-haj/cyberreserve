@@ -1,3 +1,4 @@
+import { logArena } from '@/lib/activity';
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/session';
 import { NO_STORE, sameOrigin } from '@/lib/http';
@@ -78,10 +79,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       : prisma.cafe.update({ where: { id: cafeId }, data: kind === 'logo' ? { logoImage: url } : { coverImage: url } }),
   ]);
 
-  await prisma.auditLog.create({
-    data: { actorType: 'OWNER', userId: found.user.id, action: `manage.upload.${kind}`, details: { arena: found.m.slug, imageId: image.id, bytes: bytes.length } },
-  });
-  return NextResponse.json({ ok: true, data: await getManageData(cafeId) }, { headers: NO_STORE });
+  await logArena({ cafeId: found.m.cafeId, userId: found.user.id, action: `manage.upload.${kind}`, details: { imageId: image.id, bytes: bytes.length } });
+  return NextResponse.json({ ok: true, data: await getManageData(cafeId, { ...found.m, userId: found.user.id }) }, { headers: NO_STORE });
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ slug: string }> }) {
@@ -99,14 +98,12 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ s
       itemPhoto(kind, item.id, null),
     ]);
 
-    return NextResponse.json({ ok: true, data: await getManageData(cafeId) }, { headers: NO_STORE });
+    return NextResponse.json({ ok: true, data: await getManageData(cafeId, { ...found.m, userId: found.user.id }) }, { headers: NO_STORE });
   }
   await prisma.$transaction([
     prisma.arenaImage.deleteMany({ where: { cafeId, kind } }),
     prisma.cafe.update({ where: { id: cafeId }, data: kind === 'logo' ? { logoImage: null } : { coverImage: DEFAULT_COVER } }),
   ]);
-  await prisma.auditLog.create({
-    data: { actorType: 'OWNER', userId: found.user.id, action: `manage.remove.${kind}`, details: { arena: found.m.slug } },
-  });
-  return NextResponse.json({ ok: true, data: await getManageData(cafeId) }, { headers: NO_STORE });
+  await logArena({ cafeId: found.m.cafeId, userId: found.user.id, action: `manage.remove.${kind}` });
+  return NextResponse.json({ ok: true, data: await getManageData(cafeId, { ...found.m, userId: found.user.id }) }, { headers: NO_STORE });
 }

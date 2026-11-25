@@ -86,7 +86,7 @@ function ZoneCard({ locale, g, pcs }: { locale: Locale; g: GroupView; pcs: PcVie
             <h3 className="flex flex-wrap items-center gap-2 font-display text-lg font-bold text-ink">
               <StationIcon type={g.type} className={`h-5 w-6 shrink-0 ${g.isVip ? 'text-gold' : 'text-violet-soft'}`} />
               {name}
-              {g.isVip && <span className="bg-gold px-1.5 py-px font-hud text-[11px] font-bold text-void">{t.zones.vip}</span>}
+              {g.isVip && <span className="bg-gold px-1.5 py-px font-hud text-[0.6875rem] font-bold text-void">{t.zones.vip}</span>}
             </h3>
             <p className="mt-0.5 font-hud text-sm text-muted">
               <bdi dir="ltr">

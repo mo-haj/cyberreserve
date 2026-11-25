@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pollLoginRequest, SESSION_COOKIE, sessionCookieOptions } from '@/lib/auth/session';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
+import { sameOrigin } from '@/lib/http';
 import { now } from '@/lib/time';
 
 // Public: the login page polls this every 2 seconds with its secret token.
@@ -13,6 +14,9 @@ const Body = z.object({ token: z.string().min(1).max(100) });
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
 export async function POST(request: Request) {
+  // Only our own login page may finish a sign-in (stops a site from signing a
+  // visitor into someone else's account).
+  if (!sameOrigin(request)) return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
   if (!rateLimit(`login-status:${clientIp(request.headers)}`, 90, 60_000, now().getTime())) {
     return NextResponse.json({ status: 'too_many' }, { status: 429, headers: NO_STORE });
   }

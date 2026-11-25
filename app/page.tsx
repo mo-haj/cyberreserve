@@ -10,10 +10,11 @@ import { getLocale } from '@/lib/locale';
 // Reads live data on every request.
 export const dynamic = 'force-dynamic';
 
-export default async function HomePage({ searchParams }: { searchParams: Promise<{ city?: string | string[] }> }) {
+export default async function HomePage({ searchParams }: { searchParams: Promise<{ city?: string | string[]; open?: string }> }) {
   const locale = await getLocale();
   const t = dictionary(locale);
   const cityParam = (await searchParams).city;
+  const openOnly = (await searchParams).open === '1';
   const [arenas, user, jar] = await Promise.all([listCafes(), getCurrentUser(), cookies()]);
   const city = resolveStartCity(cityParam, jar.get(CITY_COOKIE)?.value, user?.homeCity);
   const first = arenas.find((a) => !city || a.city === city) ?? null;
@@ -54,7 +55,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         <ArenaBrowser
           locale={locale}
           initial={arenas}
-          initialCity={city}
+          initialCity={openOnly ? null : city}
+          initialOpen={openOnly}
           initialLive={firstLive}
           signedIn={!!user}
           profileComplete={!!user?.profileComplete}

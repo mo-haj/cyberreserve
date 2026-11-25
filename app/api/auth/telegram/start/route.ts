@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sameOrigin } from '@/lib/http';
 import { isPreview } from '@/lib/preview';
 import { createLoginRequest } from '@/lib/auth/session';
 import { getLocale } from '@/lib/locale';
@@ -14,6 +15,8 @@ export const runtime = 'nodejs';
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
 export async function POST(request: Request) {
+  // Only our own sign-in page starts a sign-in.
+  if (!sameOrigin(request)) return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
   if (isPreview()) return NextResponse.json({ error: 'preview' }, { status: 503, headers: NO_STORE });
   const config = telegramConfig();
   if (!config) {

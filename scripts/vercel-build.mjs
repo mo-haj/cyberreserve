@@ -14,6 +14,9 @@ import { execSync } from 'node:child_process';
 const env = process.env;
 const preview = env.PREVIEW_MODE === '1' || env.DEV_FIXTURE_DATA === '1';
 const hasDb = !!env.DATABASE_URL && !preview;
+// On Vercel only the production deployment changes the database. Preview
+// deployments (other branches) may share its settings and must not migrate it.
+const onVercelPreview = !!env.VERCEL && env.VERCEL_ENV !== 'production';
 
 function run(cmd, extraEnv = {}) {
   console.log(`\n[vercel-build] ${cmd}`);
@@ -22,12 +25,12 @@ function run(cmd, extraEnv = {}) {
 
 run('node node_modules/prisma/build/index.js generate');
 
-if (hasDb) {
+if (hasDb && !onVercelPreview) {
   const direct = env.DIRECT_URL || env.DATABASE_URL;
   run('node node_modules/prisma/build/index.js migrate deploy', { DATABASE_URL: direct });
   run('node node_modules/tsx/dist/cli.mjs prisma/seed.ts', { DATABASE_URL: direct });
 } else {
-  console.log(`[vercel-build] ${preview ? 'PREVIEW_MODE=1' : 'no DATABASE_URL'}: database steps skipped`);
+  console.log(`[vercel-build] ${onVercelPreview ? 'preview deployment' : preview ? 'PREVIEW_MODE=1' : 'no DATABASE_URL'}: database steps skipped`);
 }
 
 run('node node_modules/next/dist/bin/next build');

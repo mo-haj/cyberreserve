@@ -15,6 +15,10 @@ import { getCafe, playerBadgeAt } from '@/lib/cafes';
 import { dictionary, pick } from '@/lib/i18n';
 import { getLocale } from '@/lib/locale';
 import { now } from '@/lib/time';
+import { prisma } from '@/lib/prisma';
+import { indexingOn, siteUrl } from '@/lib/site';
+import { isFollowing, isWatching, recentReviews, upcomingTournaments } from '@/lib/engage';
+import { FollowAndWatch, Tournaments } from '@/components/ArenaEngage';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,10 +30,22 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { slug } = await params;
   const locale = await getLocale();
   const arena = SLUG.test(slug) ? await getCafe(slug) : null;
-  if (!arena) return { title: dictionary(locale).arena.notFound };
+  if (!arena) return { title: dictionary(locale).arena.notFound, robots: { index: false } };
+  const name = pick(locale, arena.nameEn, arena.nameAr);
+  const place = `${pick(locale, arena.areaEn, arena.areaAr)}${locale === 'ar' ? '، ' : ', '}${cityName(arena.city, locale)}`;
+  const title = locale === 'ar' ? `${name} — صالة ألعاب في ${place}` : `${name} — gaming arena in ${place}`;
+  const tagline = pick(locale, arena.taglineEn, arena.taglineAr);
+  const description =
+    locale === 'ar'
+      ? `${tagline ? `${tagline} ` : ''}${arena.counts.total} جهاز، الساعة من ${arena.hourlyRate} ل.س. شوف الأجهزة الفاضية الآن واحجز أونلاين.`
+      : `${tagline ? `${tagline} ` : ''}${arena.counts.total} stations, from ${arena.hourlyRate} SYP an hour. See which are free now and book online.`;
+  const image = arena.coverImage.startsWith('/') ? arena.coverImage : undefined;
   return {
-    title: pick(locale, arena.nameEn, arena.nameAr),
-    description: pick(locale, arena.taglineEn, arena.taglineAr),
+    title,
+    description,
+    alternates: { canonical: `/arenas/${arena.slug}` },
+    openGraph: { type: 'website', title, description, url: `/arenas/${arena.slug}`, ...(image ? { images: [{ url: image }] } : {}) },
+    ...(arena.isDemo || !indexingOn() ? { robots: { index: false, follow: false } } : {}),
   };
 }
 
@@ -41,13 +57,58 @@ export default async function ArenaPage({ params }: Params) {
   if (!arena) notFound();
 
   const t = dictionary(locale);
+  const e = t.engage;
   const path = `/arenas/${arena.slug}`;
+  const cafeId = (await prisma.cafe.findUnique({ where: { slug: arena.slug }, select: { id: true } }))!.id;
+  const [tournaments, reviews, following, watching] = await Promise.all([
+    upcomingTournaments(cafeId, user?.id),
+    recentReviews(cafeId),
+    user ? isFollowing(user.id, cafeId) : false,
+    user ? isWatching(user.id, cafeId) : false,
+  ]);
   const name = pick(locale, arena.nameEn, arena.nameAr);
   const live = { at: now().toISOString(), counts: arena.counts, pcs: arena.pcs };
   const loginHref = `/login?next=${encodeURIComponent(path)}`;
 
+  // Structured data: Google shows the arena as a local business (address, map,
+  // hours, price range, players' rating).
+  const site = siteUrl();
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'EntertainmentBusiness',
+    additionalType: 'https://schema.org/InternetCafe',
+    name: arena.nameAr,
+    alternateName: arena.nameEn,
+    description: arena.taglineAr || arena.taglineEn || undefined,
+    ...(site ? { url: `${site}${path}` } : {}),
+    ...(site && arena.coverImage.startsWith('/') ? { image: `${site}${arena.coverImage}` } : {}),
+    ...(site && arena.logoImage?.startsWith('/') ? { logo: `${site}${arena.logoImage}` } : {}),
+    address: {
+      '@type': 'PostalAddress',
+      streetAddress: arena.addressAr || arena.addressEn || undefined,
+      addressLocality: cityName(arena.city, 'ar'),
+      addressRegion: arena.areaAr || undefined,
+      addressCountry: 'SY',
+    },
+    ...(arena.latitude != null && arena.longitude != null ? { geo: { '@type': 'GeoCoordinates', latitude: arena.latitude, longitude: arena.longitude } } : {}),
+    ...(arena.openHours === '24h'
+      ? { openingHours: 'Mo-Su 00:00-23:59' }
+      : arena.openHours
+        ? { openingHours: `Mo-Su ${arena.openHours.replace('–', '-')}` }
+        : {}),
+    priceRange: `${arena.hourlyRate} SYP / hour`,
+    currenciesAccepted: 'SYP',
+    paymentAccepted: 'Cash',
+    ...(arena.rating && arena.rating.count > 0
+      ? { aggregateRating: { '@type': 'AggregateRating', ratingValue: arena.rating.avg, reviewCount: arena.rating.count, bestRating: 5, worstRating: 1 } }
+      : {}),
+  };
+
   return (
     <>
+      {!arena.isDemo && indexingOn() && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }} />
+      )}
       <SiteHeader locale={locale} user={user} path={path} />
 
       <main className="mx-auto w-full max-w-site px-4 lg:px-8">
@@ -79,6 +140,28 @@ export default async function ArenaPage({ params }: Params) {
                 <p className="mt-1 line-clamp-1 max-w-prose text-sm text-muted sm:text-base">
                   {pick(locale, arena.taglineEn, arena.taglineAr)}
                 </p>
+                <p className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                  {arena.rating ? (
+                    <a href="#reviews" className="bg-void/70 px-2 py-0.5 text-amber-300 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.45)] hover:bg-void">
+                      ⭐ {e.rating(arena.rating.avg, arena.rating.count)}
+                    </a>
+                  ) : null}
+                  {arena.openNow !== null && (
+                    <span
+                      className={`bg-void/70 px-2 py-0.5 ${arena.openNow ? 'text-free shadow-[inset_0_0_0_1px_rgba(43,255,136,0.45)]' : 'text-busy shadow-[inset_0_0_0_1px_rgba(255,45,85,0.45)]'}`}
+                    >
+                      {arena.openHours === '24h' ? e.open24 : arena.openNow ? e.openNow : e.closedNow}
+                      {arena.openHours && arena.openHours !== '24h' && (
+                        <>
+                          {' · '}
+                          <bdi dir="ltr" className="font-hud text-xs text-muted">
+                            {arena.openHours}
+                          </bdi>
+                        </>
+                      )}
+                    </span>
+                  )}
+                </p>
               </div>
             </section>
 
@@ -103,10 +186,39 @@ export default async function ArenaPage({ params }: Params) {
                 profileComplete={!!user?.profileComplete}
                 loginHref={loginHref}
                 groups={arena.groups}
+                arenaName={name}
+                vip={myBadge === 'vip'}
               />
             </section>
 
             <ZoneCards locale={locale} groups={arena.groups} pcs={arena.pcs} />
+
+            <Tournaments locale={locale} items={tournaments} signedIn={!!user} loginHref={loginHref} />
+
+            {(arena.rating || reviews.length > 0) && (
+              <section id="reviews" className="hud scroll-mt-24 p-5 sm:p-7" aria-labelledby="reviews-title">
+                <div className="flex flex-wrap items-baseline justify-between gap-3">
+                  <h2 id="reviews-title" className="font-display text-2xl font-bold text-ink">
+                    {e.reviewsTitle}
+                  </h2>
+                  {arena.rating && <p className="font-hud text-lg text-amber-300">⭐ {e.rating(arena.rating.avg, arena.rating.count)}</p>}
+                </div>
+                <p className="mt-1 text-xs text-muted">{e.reviewsHint}</p>
+                {reviews.length > 0 && (
+                  <ul className="mt-4 grid gap-3 md:grid-cols-2">
+                    {reviews.map((r) => (
+                      <li key={r.id} className="bg-panel2/60 p-4">
+                        <p className="text-sm">
+                          <span className="text-amber-300">{'★'.repeat(r.stars)}</span>
+                          <span className="text-muted/40">{'★'.repeat(5 - r.stars)}</span> <bdi className="ms-2 font-semibold text-ink">{r.who}</bdi>
+                        </p>
+                        <p className="mt-1.5 whitespace-pre-line text-sm text-muted">{r.comment}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
           </div>
 
           {/* Side panel */}
@@ -173,6 +285,17 @@ export default async function ArenaPage({ params }: Params) {
                   {t.arena.signInCta}
                 </Link>
               )}
+              <div className="mt-5 border-t border-line pt-5">
+                <FollowAndWatch
+                  locale={locale}
+                  slug={arena.slug}
+                  signedIn={!!user}
+                  loginHref={loginHref}
+                  following={following}
+                  watching={watching}
+                  full={arena.counts.total > 0 && arena.counts.free === 0}
+                />
+              </div>
             </section>
           </aside>
 
