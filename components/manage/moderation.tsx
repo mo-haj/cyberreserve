@@ -281,16 +281,18 @@ export function ConfirmDialog({
 }: {
   title: string;
   body?: string;
-  input?: { label: string; placeholder?: string; required?: boolean; maxLength?: number };
+  input?: { label: string; placeholder?: string; required?: boolean; maxLength?: number; single?: boolean; match?: string };
   confirmLabel: string;
   cancelLabel: string;
   danger?: boolean;
-  onConfirm: (text: string) => void | Promise<void>;
+  /** Return false to keep the dialog open (the action failed). */
+  onConfirm: (text: string) => void | boolean | Promise<void | boolean>;
   onClose: () => void;
 }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const ok = !input?.required || text.trim().length > 0;
+  const norm = (v: string) => v.trim().toLowerCase();
+  const ok = input?.match ? norm(text) === norm(input.match) : !input?.required || text.trim().length > 0;
   return (
     <Shell title={title} onClose={onClose}>
       <form
@@ -299,24 +301,35 @@ export function ConfirmDialog({
           e.preventDefault();
           if (!ok) return;
           setBusy(true);
-          await onConfirm(text.trim());
+          const done = await onConfirm(text.trim());
           setBusy(false);
-          onClose();
+          if (done !== false) onClose();
         }}
       >
         {body && <p className="whitespace-pre-line text-sm leading-relaxed text-muted">{body}</p>}
         {input && (
           <label className="block">
             <span className="text-sm font-semibold text-ink">{input.label}</span>
-            <textarea
-              autoFocus
-              rows={3}
-              value={text}
-              maxLength={input.maxLength ?? 300}
-              placeholder={input.placeholder}
-              onChange={(e) => setText(e.target.value)}
-              className="mt-1.5 w-full resize-none bg-void/70 px-3 py-2.5 text-ink placeholder:text-muted/60 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] outline-none focus:shadow-[inset_0_0_0_1px_rgba(41,224,255,0.8)]"
-            />
+            {input.single ? (
+              <input
+                autoFocus
+                value={text}
+                maxLength={input.maxLength ?? 300}
+                placeholder={input.placeholder}
+                onChange={(e) => setText(e.target.value)}
+                className="mt-1.5 w-full bg-void/70 px-3 py-2 text-ink placeholder:text-muted/50 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] outline-none focus:shadow-[inset_0_0_0_1px_rgba(41,224,255,0.8)]"
+              />
+            ) : (
+              <textarea
+                autoFocus
+                rows={3}
+                value={text}
+                maxLength={input.maxLength ?? 300}
+                placeholder={input.placeholder}
+                onChange={(e) => setText(e.target.value)}
+                className="mt-1.5 w-full resize-none bg-void/70 px-3 py-2.5 text-ink placeholder:text-muted/60 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] outline-none focus:shadow-[inset_0_0_0_1px_rgba(41,224,255,0.8)]"
+              />
+            )}
           </label>
         )}
         <div className="flex flex-wrap justify-end gap-3">

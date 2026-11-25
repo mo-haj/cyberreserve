@@ -47,7 +47,7 @@ function useAction(slug: string, setData: (d: ManageData) => void, m: ManageText
           setError(m.errors[json.error] ?? m.errors.generic);
           return false;
         }
-        setData(json.data);
+        if (json.data) setData(json.data);
         return true;
       } catch {
         setError(m.errors.generic);

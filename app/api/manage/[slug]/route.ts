@@ -54,6 +54,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   try {
     const result = await runAction(found.m, found.user.id, parsed.data);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status, headers: NO_STORE });
+    // The arena is gone: nothing to reload, the panel leaves for /admin.
+    if (parsed.data.action === 'deleteArena') return NextResponse.json({ ok: true, deleted: true }, { headers: NO_STORE });
     return NextResponse.json({ ok: true, data: await getManageData(found.m.cafeId, { ...found.m, userId: found.user.id }) }, { headers: NO_STORE });
   } catch (err) {
     console.error('[api/manage] failed:', err instanceof Error ? err.message : err);

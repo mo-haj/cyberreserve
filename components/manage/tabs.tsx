@@ -11,7 +11,6 @@ import { dictionary, pick, type Locale } from '@/lib/i18n';
 import { money, offerLabel } from '@/lib/offers';
 import PlayerBadge, { badgeName } from '@/components/PlayerBadge';
 import { BanDialog, ConfirmDialog } from '@/components/manage/moderation';
-import { useRouter } from 'next/navigation';
 import type { ManageText } from '@/lib/i18n-manage';
 import type { ManageData } from '@/lib/manage/service';
 import type { ActivityRow, ShiftRow } from '@/lib/activity';
@@ -408,7 +407,6 @@ export function Access({ m, data, action }: { m: ManageText; data: ManageData; a
   const [role, setRole] = useState<'OWNER' | 'STAFF'>('OWNER');
   const [confirm, setConfirm] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const router = useRouter();
 
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_1.4fr]">
@@ -503,16 +501,15 @@ export function Access({ m, data, action }: { m: ManageText; data: ManageData; a
         <ConfirmDialog
           title={m.deleteAsk(data.arena.nameAr || data.arena.nameEn)}
           body={m.deleteHint}
-          input={{ label: m.deleteType, required: true, maxLength: 120 }}
+          input={{ label: m.deleteType, required: true, maxLength: 120, single: true, placeholder: data.arena.nameAr || data.arena.nameEn, match: data.arena.nameAr || data.arena.nameEn }}
           danger
           confirmLabel={m.deleteBtn}
           cancelLabel={m.cancel}
           onClose={() => setDeleting(false)}
           onConfirm={async (typed) => {
-            if (await action.run('delete', { action: 'deleteArena', confirm: typed })) {
-              setDeleting(false);
-              router.push('/admin');
-            }
+            if (!(await action.run('delete', { action: 'deleteArena', confirm: typed }))) return false;
+            window.location.assign('/admin');
+            return false; // stay open (busy) while the page changes
           }}
         />
       )}
