@@ -121,12 +121,20 @@ const send = (chatId: string | number, text: string, keyboard?: { text: string; 
   tg('sendMessage', { chat_id: chatId, text, ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}) });
 
 /** Owners and staff of an arena who can get Telegram messages. */
+/**
+ * Who hears about an arena's bookings on Telegram: its owners always; staff only
+ * while they are on shift there (so off-duty staff are not woken up).
+ */
 async function arenaChats(cafeId: string): Promise<string[]> {
   const members = await prisma.arenaMember.findMany({
-    where: { cafeId, user: { telegramChatId: { not: null } } },
+    where: {
+      cafeId,
+      user: { telegramChatId: { not: null } },
+      OR: [{ role: 'OWNER' }, { user: { shifts: { some: { cafeId, endedAt: null } } } }],
+    },
     select: { user: { select: { telegramChatId: true } } },
   });
-  return members.map((m) => m.user.telegramChatId!).filter(Boolean);
+  return [...new Set(members.map((m) => m.user.telegramChatId!).filter(Boolean))];
 }
 
 async function tellArena(cafeId: string, text: string, keyboard?: { text: string; callback_data: string }[][]) {

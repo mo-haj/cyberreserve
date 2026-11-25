@@ -169,6 +169,8 @@ export const ManageAction = z.discriminatedUnion('action', [
   z.object({ action: z.literal('setPublished'), on: z.boolean() }),
   z.object({ action: z.literal('hideReview'), id: Uuid, hidden: z.boolean() }),
   z.object({ action: z.literal('setSearchVisible'), on: z.boolean() }),
+  // Delete the arena for good (its stations, bookings, pictures...). The name must be typed back.
+  z.object({ action: z.literal('deleteArena'), confirm: z.string().max(120) }),
   // Platform subscription: add a month / a year, pause or resume, or stop tracking (free).
   z.object({ action: z.literal('subscription'), op: z.enum(['MONTH', 'YEAR', 'pause', 'resume', 'free']) }),
   z.object({ action: z.literal('setMember'), phone: Text(6, 30), role: z.enum(['OWNER', 'STAFF']) }),
@@ -189,7 +191,7 @@ export type ManageAction = z.infer<typeof ManageAction>;
 export const STAFF_ACTIONS = new Set<ManageAction['action']>(['walkIn', 'freeNow', 'extend', 'maintenance', 'markBooking', 'shift']);
 
 /** Only the site owner (super admin) may do these, in any arena. */
-export const SUPER_ACTIONS = new Set<ManageAction['action']>(['setPublished', 'setMember', 'removeMember', 'promoteGame', 'hideReview', 'setSearchVisible', 'subscription']);
+export const SUPER_ACTIONS = new Set<ManageAction['action']>(['setPublished', 'setMember', 'removeMember', 'promoteGame', 'hideReview', 'setSearchVisible', 'subscription', 'deleteArena']);
 
 export function canDo(role: 'OWNER' | 'STAFF', action: ManageAction['action'], superAdmin = false): boolean {
   if (superAdmin) return true;

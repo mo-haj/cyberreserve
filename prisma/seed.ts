@@ -121,6 +121,7 @@ async function seedGames() {
   for (const d of DEMO_CAFES) {
     // Only for a demo arena that has no games yet: later choices in the
     // owner panel (including removing games) are kept.
+    if (!(await prisma.cafe.findUnique({ where: { id: d.id }, select: { id: true } }))) continue; // deleted
     if ((await prisma.cafeGame.count({ where: { cafeId: d.id } })) > 0) continue;
     const slugs = DEMO_ARENA_GAMES[d.slug] ?? [];
     await prisma.cafeGame.createMany({
@@ -167,12 +168,17 @@ async function seedDemoBookings(): Promise<number> {
 }
 
 async function main() {
-  await seedDemoCafes();
-  await seedDemoGroups();
+  // SEED_DEMO=false: real arenas only. Demo arenas are not recreated, so
+  // ones deleted from the dashboard stay deleted.
+  const demo = process.env.SEED_DEMO !== 'false';
+  if (demo) {
+    await seedDemoCafes();
+    await seedDemoGroups();
+  }
   await seedGames();
 
   const demoBookings =
-    process.env.SEED_DEMO_BOOKINGS === 'false' ? 0 : await seedDemoBookings();
+    !demo || process.env.SEED_DEMO_BOOKINGS === 'false' ? 0 : await seedDemoBookings();
 
   await prisma.pricingSetting.upsert({
     where: { id: 'default' },

@@ -10,7 +10,8 @@ import { cityName } from '@/lib/cities';
 import { dictionary, pick, type Locale } from '@/lib/i18n';
 import { money, offerLabel } from '@/lib/offers';
 import PlayerBadge, { badgeName } from '@/components/PlayerBadge';
-import { BanDialog } from '@/components/manage/moderation';
+import { BanDialog, ConfirmDialog } from '@/components/manage/moderation';
+import { useRouter } from 'next/navigation';
 import type { ManageText } from '@/lib/i18n-manage';
 import type { ManageData } from '@/lib/manage/service';
 import type { ActivityRow, ShiftRow } from '@/lib/activity';
@@ -406,6 +407,8 @@ export function Access({ m, data, action }: { m: ManageText; data: ManageData; a
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<'OWNER' | 'STAFF'>('OWNER');
   const [confirm, setConfirm] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
 
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_1.4fr]">
@@ -483,7 +486,36 @@ export function Access({ m, data, action }: { m: ManageText; data: ManageData; a
             {data.searchVisible ? m.googleHide : m.googleShow}
           </button>
         </div>
+        <div className="border-t border-busy/40 pt-4">
+          <h3 className="font-display text-base font-bold text-busy">{m.deleteTitle}</h3>
+          <p className="mt-1 text-xs text-muted">{m.deleteHint}</p>
+          <button
+            type="button"
+            className="mt-3 px-4 py-2 text-sm font-semibold text-busy shadow-[inset_0_0_0_1px_rgba(255,45,85,0.6)] hover:bg-busy hover:text-white"
+            disabled={!!action.busy}
+            onClick={() => setDeleting(true)}
+          >
+            {m.deleteBtn}
+          </button>
+        </div>
       </section>
+      {deleting && (
+        <ConfirmDialog
+          title={m.deleteAsk(data.arena.nameAr || data.arena.nameEn)}
+          body={m.deleteHint}
+          input={{ label: m.deleteType, required: true, maxLength: 120 }}
+          danger
+          confirmLabel={m.deleteBtn}
+          cancelLabel={m.cancel}
+          onClose={() => setDeleting(false)}
+          onConfirm={async (typed) => {
+            if (await action.run('delete', { action: 'deleteArena', confirm: typed })) {
+              setDeleting(false);
+              router.push('/admin');
+            }
+          }}
+        />
+      )}
 
       <section className="hud space-y-4 p-5 sm:p-6">
         <div>

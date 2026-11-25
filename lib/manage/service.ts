@@ -295,6 +295,7 @@ export type ManageData = Awaited<ReturnType<typeof getManageData>>;
 export type ActionResult = { ok: true } | { ok: false; error: ActionError; status: number };
 export type ActionError =
   | 'forbidden'
+  | 'bad_confirm'
   | 'not_found'
   | 'busy'
   | 'not_busy'
@@ -311,6 +312,19 @@ export type ActionError =
   | 'next_booking'
   | 'bad_phone'
   | 'no_such_player';
+
+/**
+ * Remove an arena and everything that belongs to it. Bookings and stations do
+ * not cascade on their own (so nothing is lost by accident), hence the order.
+ */
+export async function deleteArenaForGood(cafeId: string): Promise<void> {
+  await prisma.$transaction([
+    prisma.bookingSnack.deleteMany({ where: { booking: { device: { cafeId } } } }),
+    prisma.booking.deleteMany({ where: { device: { cafeId } } }),
+    prisma.device.deleteMany({ where: { cafeId } }),
+    prisma.cafe.delete({ where: { id: cafeId } }),
+  ]);
+}
 
 /** Both times set -> minutes; anything else -> not set. */
 function hoursFrom(open: string, close: string): { openMin: number | null; closeMin: number | null } {
@@ -645,6 +659,14 @@ export async function runAction(
     case 'removeEntry': {
       await prisma.tournamentEntry.deleteMany({ where: { tournamentId: input.id, userId: input.userId, tournament: { cafeId } } });
       await audit({ tournament: input.id, player: input.userId });
+      return { ok: true };
+    }
+    case 'deleteArena': {
+      const c = await prisma.cafe.findUnique({ where: { id: cafeId }, select: { nameAr: true, nameEn: true, slug: true } });
+      const typed = input.confirm.trim().toLowerCase();
+      if (!c || ![c.nameAr, c.nameEn, c.slug].some((n) => n.trim().toLowerCase() === typed)) return fail('bad_confirm');
+      await audit({ deleted: c.slug, name: c.nameAr });
+      await deleteArenaForGood(cafeId);
       return { ok: true };
     }
     case 'subscription': {
