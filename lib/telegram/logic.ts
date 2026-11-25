@@ -162,7 +162,7 @@ export const MEMBER_TEXT = {
     noBookings: 'لا حجوزات قادمة. احجز جهازك من الموقع.',
     support: (contact: string | null) =>
       `🛟 المساعدة\n\n• لمشكلة في حجز: تواصل مع الصالة مباشرة، أو ألغِ الحجز من زر 📋 حجوزاتي.\n• لتغيير اسمك أو مدينتك: صفحة "ملفي" على الموقع.\n` +
-      (contact ? `• لأي شيء آخر: ${contact}` : '• قريباً: مراسلة فريق الدعم من هنا مباشرة.'),
+      (contact ? `• لأي شيء آخر راسلنا على:\n${contact}` : '• قريباً: مراسلة فريق الدعم من هنا مباشرة.'),
   },
   en: {
     home: (name: string, next: string | null) =>
@@ -172,7 +172,7 @@ export const MEMBER_TEXT = {
     noBookings: 'No upcoming bookings. Book a station on the website.',
     support: (contact: string | null) =>
       `🛟 Help\n\n• A problem with a booking: contact the arena directly, or cancel it from 📋 My bookings.\n• To change your name or city: "My profile" on the website.\n` +
-      (contact ? `• Anything else: ${contact}` : '• Coming soon: message the support team right here.'),
+      (contact ? `• Anything else, write to us:\n${contact}` : '• Coming soon: message the support team right here.'),
   },
 } as const;
 

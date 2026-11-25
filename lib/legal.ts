@@ -1,3 +1,4 @@
+import { supportEmail } from '@/lib/site';
 // Terms of use and privacy policy, in both languages. Plain language on
 // purpose. The site owner should have a lawyer review these before launch.
 
@@ -228,7 +229,8 @@ export function privacyDoc(locale: 'ar' | 'en', contact: string): LegalDoc {
  */
 export function supportContactFor(): string | null {
   const configured = process.env.SUPPORT_CONTACT?.trim();
-  if (!configured) return null;
+  // No separate contact set: the support e-mail (SUPPORT_EMAIL) is the contact.
+  if (!configured) return supportEmail();
   const bot = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, '').toLowerCase();
   if (bot && configured.replace(/^@/, '').toLowerCase() === bot) return null;
   return configured;
@@ -237,6 +239,8 @@ export function supportContactFor(): string | null {
 export function supportContact(): string {
   const configured = process.env.SUPPORT_CONTACT?.trim();
   if (configured) return configured;
+  const email = supportEmail();
+  if (email) return email;
   const bot = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, '');
   return bot ? `@${bot}` : '—';
 }
