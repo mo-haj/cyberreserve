@@ -5,12 +5,17 @@ import type { NextRequest } from 'next/server';
 //    all goes straight to sign-in (a clean redirect before any page work).
 //    The pages and APIs themselves still check the session and the rights
 //    (arena member or super admin), so a fake cookie gets nothing.
-// 2. admin.<domain>: once the site has its own domain, the admin subdomain
-//    opens the dashboard at its root (admin.example.com -> /admin).
+// 2. admin.<domain> is not used: one domain means one sign-in, so an admin
+//    can also book for themselves or a friend without signing in twice.
+//    Any admin.<domain> address moves (308) to the same page on <domain>,
+//    and its root to <domain>/admin.
 
 export const config = {
-  matcher: ['/', '/admin', '/admin/:path*', '/profile', '/manage', '/manage/:path*'],
+  // Every page and API, not static files (admin.<domain> must move as a whole).
+  matcher: ['/((?!_next/static|_next/image|.*\\.[a-zA-Z0-9]+$).*)'],
 };
+
+const SIGNED_IN = /^\/(admin|manage|profile)(\/|$)/;
 
 function visitorHost(request: NextRequest): string {
   // The visitor's Host (Docker's or Vercel's internal name would be wrong).
@@ -21,10 +26,13 @@ export function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const host = visitorHost(request);
 
-  if (path === '/') {
-    if (!host.toLowerCase().startsWith('admin.')) return NextResponse.next();
-    return NextResponse.rewrite(new URL('/admin', request.url));
+  if (host.toLowerCase().startsWith('admin.')) {
+    const proto = request.headers.get('x-forwarded-proto') ?? request.nextUrl.protocol.replace(':', '');
+    const to = new URL(`${proto}://${host.slice('admin.'.length)}${path === '/' ? '/admin' : path}${request.nextUrl.search}`);
+    return NextResponse.redirect(to, 308);
   }
+
+  if (!SIGNED_IN.test(path)) return NextResponse.next();
 
   if (request.cookies.get('cr_session')?.value) return NextResponse.next();
   const next = path.startsWith('/manage') ? path.replace(/^\/manage/, '/admin') : path;

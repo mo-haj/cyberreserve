@@ -36,7 +36,7 @@ What works today:
   shown before confirming and in the bot's confirmation. 3 no-shows pause booking for
   7 days. Players see and cancel their bookings on their profile ("حجوزاتي"). The reminder job runs
   inside the website every minute (turn it off with `BOOKING_JOBS=off`).
-- **Dashboard** (`/admin`, later `admin.<your domain>`): one place for the site owner and arena owners.
+- **Dashboard** (`/admin`; `admin.<your domain>` just redirects there): one place for the site owner and arena owners.
   - **Site owner (super admin)**: put your Telegram account ID in `ADMIN_TELEGRAM_IDS` (get it from
     @userinfobot in Telegram). You see every arena, **add arenas** (they start hidden), **publish or
     hide** them, and add/remove **owners and staff** by phone number (tab "الإدارة").
