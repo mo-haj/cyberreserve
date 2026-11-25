@@ -7,7 +7,7 @@
 export type Locale = 'ar' | 'en';
 export const LOCALES: Locale[] = ['ar', 'en'];
 /** Language for visitors who have not picked one yet (the switch in the header sets cr_lang). */
-export const DEFAULT_LOCALE: Locale = 'en';
+export const DEFAULT_LOCALE: Locale = 'ar';
 export const LOCALE_COOKIE = 'cr_lang';
 
 export function isLocale(value: unknown): value is Locale {
@@ -394,7 +394,7 @@ const ar = {
     copy: 'نسخ',
     copied: 'تم النسخ',
     step2: 'اكتب هذا الرمز في محادثة البوت وأرسله:',
-    codeNote: 'لا تعطِ هذا الرمز لأحد. صالح لمدة 10 دقائق.',
+    codeNote: 'لا تعطِ هذا الرمز لأحد. صالح لمدة 5 دقائق.',
     step3: 'أول مرة فقط: البوت سيطلب رقم هاتفك.',
     waiting: 'بانتظار التأكيد من تيليغرام…',
     success: 'تم تسجيل الدخول. جارٍ تحويلك…',
@@ -784,7 +784,7 @@ const en: Dict = {
     copy: 'Copy',
     copied: 'Copied',
     step2: 'Type this code in the bot chat and send it:',
-    codeNote: 'Never give this code to anyone. Valid for 10 minutes.',
+    codeNote: 'Never give this code to anyone. Valid for 5 minutes.',
     step3: 'First time only: the bot asks for your phone number.',
     waiting: 'Waiting for Telegram…',
     success: 'Signed in. Taking you back…',

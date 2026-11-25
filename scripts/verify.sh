@@ -233,9 +233,9 @@ if [ -z "$SKIP_HTTP" ]; then
   code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'origin: https://evil.example' -H 'content-type: application/json' -d '{"action":"freeNow","pcNumber":1}' "$BASE_URL/api/manage/mezzeh-arena")"
   [ "$code" = "403" ] && ok "owner API refuses other websites (403)" || bad "cross-site owner action -> $code"
 
-  step "Languages (English default, Arabic switch)"
-  curl -s "$BASE_URL/" | grep -q '<html lang="en" dir="ltr"' && ok "English by default" || bad "home page is not English by default"
-  curl -s -H 'Cookie: cr_lang=ar' "$BASE_URL/" | grep -q '<html lang="ar" dir="rtl"' && ok "Arabic (right-to-left) when chosen" || bad "Arabic cookie not honoured"
+  step "Languages (Arabic default, English switch)"
+  curl -s "$BASE_URL/" | grep -q '<html lang="ar" dir="rtl"' && ok "Arabic (right-to-left) by default" || bad "home page is not Arabic by default"
+  curl -s -H 'Cookie: cr_lang=en' "$BASE_URL/" | grep -q '<html lang="en" dir="ltr"' && ok "English when chosen" || bad "English cookie not honoured"
   loc="$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE_URL/api/lang?to=en&next=/arenas/old-city-lan")"
   echo "$loc" | grep -q '/arenas/old-city-lan$' && ok "language switch returns to the same page" || bad "language switch went to '$loc'"
   loc="$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE_URL/api/lang?to=en&next=//evil.example")"

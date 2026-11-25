@@ -4,7 +4,7 @@ A directory of **gaming arenas** across Syria with a **live station map**: playe
 free right now (green), in use (red) or out of service (grey). The map refreshes every 5 seconds.
 
 What works today:
-- **English by default**, with an **Arabic** switch in the header (right-to-left). Each page shows one language;
+- **Arabic by default** (right-to-left), with an **English** switch in the header. Each page shows one language;
   the choice is remembered (`cr_lang` cookie). Change the default in `lib/i18n.ts` (`DEFAULT_LOCALE`).
 - **Home** (`/`): the arena list (city menu for all of Syria, search by name or area, live free
   counts) next to the selected arena's live station map. On phones a row opens the arena page and

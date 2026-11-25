@@ -10,7 +10,7 @@ import { hashSecret, looksLikeSecret, newCode, newSecret, newShortId } from '@/l
 
 export const SESSION_COOKIE = 'cr_session';
 const SESSION_DAYS = 30;
-const LOGIN_REQUEST_MINUTES = 10;
+const LOGIN_REQUEST_MINUTES = 5;
 
 export interface CurrentUser {
   id: string;
