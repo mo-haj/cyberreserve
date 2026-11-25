@@ -18,6 +18,9 @@ const send = (chatId: string | number, text: string, keyboard?: Keyboard) =>
 
 /** A player's bot language: the language of their last booking. */
 async function langOf(userId: string): Promise<BotLang> {
+  // The language picked in the bot (/language) wins, else the last booking's.
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { botLocale: true } });
+  if (u?.botLocale === 'ar' || u?.botLocale === 'en') return u.botLocale;
   const b = await prisma.booking.findFirst({ where: { userId }, orderBy: { createdAt: 'desc' }, select: { locale: true } });
   return b?.locale === 'en' ? 'en' : 'ar';
 }

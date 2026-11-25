@@ -65,6 +65,17 @@ export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** A message in Telegram's HTML mode (escape user text with escapeHtml). */
+export function sendHtml(chatId: number, html: string, replyMarkup?: unknown) {
+  return tg('sendMessage', {
+    chat_id: chatId,
+    text: html,
+    parse_mode: 'HTML',
+    link_preview_options: { is_disabled: true },
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  });
+}
+
 export function sendText(chatId: number, text: string, replyMarkup?: unknown) {
   return tg('sendMessage', { chat_id: chatId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) });
 }

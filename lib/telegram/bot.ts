@@ -19,7 +19,8 @@ import { z } from 'zod';
 import { LoginStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { now } from '@/lib/time';
-import { sendText, tg } from '@/lib/telegram/api';
+import { sendHtml, sendText, tg } from '@/lib/telegram/api';
+import { bookScreen, favouritesScreen, languageDone, languageScreen, tournamentsScreen, type Screen } from '@/lib/telegram/menu';
 import { saveRating, saveReviewComment } from '@/lib/engage';
 import { ENGAGE_TEXT } from '@/lib/engage-texts';
 import { cancelByPlayer, confirmComing, markByArena, upcomingForBot } from '@/lib/booking/service';
@@ -31,7 +32,9 @@ import {
   LANG_BUTTONS,
   MEMBER_BUTTONS,
   MEMBER_TEXT,
+  MEMBER_ACTIONS,
   memberAction,
+  type MemberAction,
   MAX_CODE_ATTEMPTS,
   asBotLocale,
   botLocale,
@@ -87,7 +90,11 @@ const REMOVE_KEYBOARD = { remove_keyboard: true };
 function memberKeyboard(lang: 'ar' | 'en') {
   const b = MEMBER_BUTTONS[lang];
   return {
-    keyboard: [[{ text: b.bookings }, { text: b.support }]],
+    keyboard: [
+      [{ text: b.book }, { text: b.favorites }],
+      [{ text: b.bookings }, { text: b.tournaments }],
+      [{ text: b.support }],
+    ],
     resize_keyboard: true,
     is_persistent: true,
   };
@@ -215,7 +222,7 @@ async function onText(chatId: number, from: FromT, text: string) {
     // Already signed in before? Then this is a player we know: answer as such.
     const me = await prisma.user.findUnique({
       where: { telegramChatId: telegramUserId },
-      select: { id: true, name: true, nickname: true },
+      select: { id: true, name: true, nickname: true, botLocale: true },
     });
     if (me) return onMember(chatId, from, me, text);
     await sendText(chatId, isBareStart(text) ? t.welcome : t.noPending, REMOVE_KEYBOARD);
@@ -314,14 +321,26 @@ async function onCallback(cb: NonNullable<TelegramUpdate['callback_query']>) {
   if (data.startsWith('bkr:')) return onCancelReason(cb, chatId, data);
   if (data.startsWith('rv:')) return onRating(cb, chatId, data);
   if (data.startsWith('bp:') || data.startsWith('bk:')) return onBookingButton(cb, chatId, data);
-  if (data === 'm:bookings' || data === 'm:support') {
+  if (data.startsWith('m:')) {
     await tg('answerCallbackQuery', { callback_query_id: cb.id });
     const me = await prisma.user.findUnique({
       where: { telegramChatId: String(cb.from.id) },
-      select: { id: true, name: true, nickname: true },
+      select: { id: true, name: true, nickname: true, botLocale: true },
     });
-    if (me) return onMember(chatId, cb.from, me, '', data === 'm:bookings' ? 'bookings' : 'support');
-    await sendText(chatId, BOT_TEXT[botLocale(cb.from.language_code)].noPending, REMOVE_KEYBOARD);
+    if (!me) {
+      await sendText(chatId, BOT_TEXT[botLocale(cb.from.language_code)].noPending, REMOVE_KEYBOARD);
+      return;
+    }
+    // m:lang:ar / m:lang:en: the player picked the bot language.
+    const picked = /^m:lang:(ar|en)$/.exec(data)?.[1] as 'ar' | 'en' | undefined;
+    if (picked) {
+      await prisma.user.update({ where: { id: me.id }, data: { botLocale: picked } });
+      // The new language's bottom buttons come with the confirmation.
+      await sendText(chatId, languageDone(picked), memberKeyboard(picked));
+      return;
+    }
+    const action = data.slice(2);
+    if ((MEMBER_ACTIONS as string[]).includes(action)) return onMember(chatId, cb.from, me, '', action as MemberAction);
     return;
   }
   await tg('answerCallbackQuery', { callback_query_id: cb.id });
@@ -544,29 +563,35 @@ async function onContact(
 async function onMember(
   chatId: number,
   from: FromT,
-  me: { id: string; name: string; nickname: string | null },
+  me: { id: string; name: string; nickname: string | null; botLocale: string | null },
   text: string,
-  pressed: 'bookings' | 'support' | null = null,
+  pressed: MemberAction | null = null,
 ) {
-  // The language of their last sign-in on the website, else Telegram's.
-  const last = await prisma.loginRequest.findFirst({
-    where: { telegramUserId: String(from.id) },
-    orderBy: { createdAt: 'desc' },
-    select: { locale: true },
-  });
-  const lang = last ? asBotLocale(last.locale) : botLocale(from.language_code);
+  // The language picked with /language, else that of their last sign-in on
+  // the website, else Telegram's.
+  let lang: 'ar' | 'en';
+  if (me.botLocale === 'ar' || me.botLocale === 'en') lang = me.botLocale;
+  else {
+    const last = await prisma.loginRequest.findFirst({
+      where: { telegramUserId: String(from.id) },
+      orderBy: { createdAt: 'desc' },
+      select: { locale: true },
+    });
+    lang = last ? asBotLocale(last.locale) : botLocale(from.language_code);
+  }
   const t = MEMBER_TEXT[lang];
   const keys = memberKeyboard(lang);
   const action = pressed ?? memberAction(text);
-  // Buttons under the message itself (tap = same as the bottom buttons).
-  const inline = {
-    inline_keyboard: [
-      [
-        { text: MEMBER_BUTTONS[lang].bookings, callback_data: 'm:bookings' },
-        { text: MEMBER_BUTTONS[lang].support, callback_data: 'm:support' },
-      ],
-    ],
+  const b = MEMBER_BUTTONS[lang];
+  const show = async (s: Screen) => {
+    // A screen without its own buttons keeps the bottom keyboard in place.
+    await sendHtml(chatId, s.html, s.buttons.length > 0 ? { inline_keyboard: s.buttons } : keys);
   };
+
+  if (action === 'book') return show(await bookScreen(me.id, lang));
+  if (action === 'favorites') return show(await favouritesScreen(me.id, lang));
+  if (action === 'tournaments') return show(await tournamentsScreen(me.id, lang));
+  if (action === 'language') return show(languageScreen(lang));
 
   if (action === 'support') {
     // The bottom buttons come with this reply, so they stay in the chat from now on.
@@ -590,5 +615,7 @@ async function onMember(
     return;
   }
 
-  await sendText(chatId, t.home(me.nickname ?? me.name, list[0]?.text ?? null), inline);
+  // The home message brings the bottom buttons, so players with the older
+  // two-button keyboard get the full one.
+  await sendText(chatId, t.home(me.nickname ?? me.name, list[0]?.text ?? null), keys);
 }

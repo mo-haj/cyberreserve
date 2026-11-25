@@ -49,6 +49,8 @@ model User {
   email           String?        @unique
   phone           String?        @unique
   telegramChatId  String?        @unique
+  /// Language the player picked for the bot with /language ("ar" | "en"); null = follow the website.
+  botLocale       String?
   /// Real full name, for the arena staff. Set on the profile page.
   fullName        String?
   /// Player name shown to arenas and other players.

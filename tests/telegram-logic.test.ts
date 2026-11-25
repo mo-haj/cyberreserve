@@ -122,5 +122,10 @@ test('the bottom buttons work in both languages, like the commands', async () =>
   assert.equal(memberAction(MEMBER_BUTTONS.en.support), 'support');
   assert.equal(memberAction('/bookings'), 'bookings');
   assert.equal(memberAction('/help'), 'support');
+  assert.equal(memberAction(MEMBER_BUTTONS.ar.book), 'book');
+  assert.equal(memberAction(MEMBER_BUTTONS.en.favorites), 'favorites');
+  assert.equal(memberAction(MEMBER_BUTTONS.ar.tournaments), 'tournaments');
+  assert.equal(memberAction('/language'), 'language');
+  assert.equal(memberAction('/tournaments@L3ibBot'), 'tournaments');
   assert.equal(memberAction('hello'), null);
 });

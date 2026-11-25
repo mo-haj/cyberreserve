@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { supportEmail } from '@/lib/site';
+import { siteUrl, supportEmail } from '@/lib/site';
 import HowItWorks from '@/components/HowItWorks';
 import MobileMenu from '@/components/MobileMenu';
 import { manageText } from '@/lib/i18n-manage';
@@ -7,8 +7,10 @@ import type { CurrentUser } from '@/lib/auth/session';
 import { dictionary, type Locale } from '@/lib/i18n';
 
 export function Logo({ label }: { label: string }) {
+  // The main site's full address: on admin.<domain>, "/" is the dashboard
+  // itself, so a bare "/" would never lead players and admins back home.
   return (
-    <Link href="/" className="group flex items-center gap-2.5" aria-label={label}>
+    <Link href={siteUrl() ?? '/'} className="group flex items-center gap-2.5" aria-label={label}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/brand/l3ib-logo.webp"

@@ -260,11 +260,11 @@ export async function banPlayer(cafeId: string, byUserId: string, userId: string
   }
   background('ban notify', async () => {
     const [u, cafe] = await Promise.all([
-      prisma.user.findUnique({ where: { id: userId }, select: { telegramChatId: true, bookings: { orderBy: { createdAt: 'desc' }, take: 1, select: { locale: true } } } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { telegramChatId: true, botLocale: true, bookings: { orderBy: { createdAt: 'desc' }, take: 1, select: { locale: true } } } }),
       prisma.cafe.findUnique({ where: { id: cafeId }, select: { nameAr: true, nameEn: true } }),
     ]);
     if (!u?.telegramChatId || !cafe) return;
-    const lang = (u.bookings[0]?.locale === 'en' ? 'en' : 'ar') as BotLang;
+    const lang = ((u.botLocale ?? u.bookings[0]?.locale) === 'en' ? 'en' : 'ar') as BotLang;
     await send(u.telegramChatId, BOOKING_TEXT[lang].banned(lang === 'ar' ? cafe.nameAr : cafe.nameEn, banUntilText(until, lang), reason));
   });
 }
@@ -275,11 +275,11 @@ export async function unbanPlayer(cafeId: string, byUserId: string, userId: stri
   await logArena({ cafeId, userId: byUserId, action: 'arena.unban', details: { player: userId } });
   background('unban notify', async () => {
     const [u, cafe] = await Promise.all([
-      prisma.user.findUnique({ where: { id: userId }, select: { telegramChatId: true, bookings: { orderBy: { createdAt: 'desc' }, take: 1, select: { locale: true } } } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { telegramChatId: true, botLocale: true, bookings: { orderBy: { createdAt: 'desc' }, take: 1, select: { locale: true } } } }),
       prisma.cafe.findUnique({ where: { id: cafeId }, select: { nameAr: true, nameEn: true } }),
     ]);
     if (!u?.telegramChatId || !cafe) return;
-    const lang = (u.bookings[0]?.locale === 'en' ? 'en' : 'ar') as BotLang;
+    const lang = ((u.botLocale ?? u.bookings[0]?.locale) === 'en' ? 'en' : 'ar') as BotLang;
     await send(u.telegramChatId, BOOKING_TEXT[lang].unbanned(lang === 'ar' ? cafe.nameAr : cafe.nameEn));
   });
   return true;
@@ -336,6 +336,10 @@ export async function createBooking(input: {
   });
   if (cancels >= BOOKING.maxCancelsPerDay) return { ok: false, error: 'too_many_cancels' };
 
+  // Telegram messages about this booking: the bot language the player picked (/language), else the site's.
+  const picked = (await prisma.user.findUnique({ where: { id: input.userId }, select: { botLocale: true } }))?.botLocale;
+  const msgLang = picked === 'ar' || picked === 'en' ? picked : input.lang;
+
   const ban = await activeBan(device.cafe.id, input.userId, at);
   if (ban) return { ok: false, error: 'arena_banned', detail: { reason: ban.reason, until: ban.until?.toISOString() ?? null } };
   // The arena cancelled this player's booking at this time: do not let them simply book it again.
@@ -379,7 +383,7 @@ export async function createBooking(input: {
           totalPrice: new Prisma.Decimal(price),
           status: BookingStatus.CONFIRMED,
           confirmedAt: at,
-          locale: input.lang,
+          locale: msgLang,
           groupId: input.group?.id ?? null,
         },
         select: { id: true },

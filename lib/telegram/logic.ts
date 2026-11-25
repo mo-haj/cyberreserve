@@ -143,11 +143,19 @@ export function parseCommand(text: string | undefined): string | null {
 /** The bot's "/" menu, per language (set once with setMyCommands). */
 export const BOT_COMMANDS = {
   ar: [
+    { command: 'book', description: 'احجز جهازًا' },
+    { command: 'favorites', description: 'صالاتي المفضلة' },
     { command: 'bookings', description: 'حجوزاتي القادمة' },
+    { command: 'tournaments', description: 'بطولاتي' },
+    { command: 'language', description: 'لغة البوت' },
     { command: 'support', description: 'المساعدة' },
   ],
   en: [
+    { command: 'book', description: 'Book a station' },
+    { command: 'favorites', description: 'My favourite arenas' },
     { command: 'bookings', description: 'My upcoming bookings' },
+    { command: 'tournaments', description: 'My tournaments' },
+    { command: 'language', description: 'Bot language' },
     { command: 'support', description: 'Help' },
   ],
 } as const;
@@ -178,19 +186,23 @@ export const MEMBER_TEXT = {
 
 /** The two buttons kept at the bottom of the chat for signed-in players. */
 export const MEMBER_BUTTONS = {
-  ar: { bookings: '📋 حجوزاتي', support: '🛟 المساعدة' },
-  en: { bookings: '📋 My bookings', support: '🛟 Help' },
+  ar: { book: '🎮 احجز', favorites: '⭐ مفضّلتي', bookings: '📋 حجوزاتي', tournaments: '🏆 بطولاتي', support: '🛟 المساعدة' },
+  en: { book: '🎮 Book', favorites: '⭐ Favourites', bookings: '📋 My bookings', tournaments: '🏆 Tournaments', support: '🛟 Help' },
 } as const;
 
+export type MemberAction = 'book' | 'favorites' | 'bookings' | 'tournaments' | 'support' | 'language';
+export const MEMBER_ACTIONS: MemberAction[] = ['book', 'favorites', 'bookings', 'tournaments', 'support', 'language'];
+
 /** What a signed-in player asked for: a command or one of the buttons (either language). */
-export function memberAction(text: string | undefined): 'bookings' | 'support' | null {
+export function memberAction(text: string | undefined): MemberAction | null {
   const command = parseCommand(text);
-  if (command === 'bookings') return 'bookings';
-  if (command === 'support' || command === 'help') return 'support';
+  if (command === 'help') return 'support';
+  if (command === 'lang') return 'language';
+  if (command === 'favourites') return 'favorites';
+  if (command && (MEMBER_ACTIONS as string[]).includes(command)) return command as MemberAction;
   const t = text?.trim();
   for (const b of Object.values(MEMBER_BUTTONS)) {
-    if (t === b.bookings) return 'bookings';
-    if (t === b.support) return 'support';
+    for (const [action, label] of Object.entries(b)) if (t === label) return action as MemberAction;
   }
   return null;
 }
