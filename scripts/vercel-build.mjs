@@ -40,7 +40,7 @@ await setWebhook();
 async function setWebhook() {
   const token = env.TELEGRAM_BOT_TOKEN?.trim();
   const secret = env.TELEGRAM_WEBHOOK_SECRET?.trim();
-  const host = (env.PUBLIC_URL || env.VERCEL_PROJECT_PRODUCTION_URL || '').trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  const host = (env.SITE_URL || env.PUBLIC_URL || env.VERCEL_PROJECT_PRODUCTION_URL || '').trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
   if (!hasDb || env.VERCEL_ENV !== 'production' || !token || !secret || !host) {
     console.log('[vercel-build] Telegram webhook not changed (needs the production deployment, a database and the bot settings)');
     return;
