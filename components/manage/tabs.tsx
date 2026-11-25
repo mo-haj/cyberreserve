@@ -720,7 +720,7 @@ function LogRow({ m, r, locale }: { m: ManageText; r: Row; locale: Locale }) {
       </span>
       <span className={`flex min-w-0 items-center gap-2 ${TEXT[t]}`}>
         <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[t]}`} aria-hidden="true" />
-        <span className="truncate">{m.act[r.action] ?? m.actOther}</span>
+        <span className="truncate">{r.auto ? m.shiftAutoStart : (m.act[r.action] ?? m.actOther)}</span>
       </span>
       <span className="text-muted">{r.pcNumber != null ? m.pcShort(r.pcNumber) : <span className="hidden md:inline">—</span>}</span>
       <span className="min-w-0 truncate text-muted">{r.player && r.actor !== 'PLAYER' ? <bdi>{r.player}</bdi> : <span className="hidden md:inline">—</span>}</span>
@@ -875,6 +875,11 @@ export function Activity({ m, slug, locale }: { m: ManageText; slug: string; loc
         >
           <span className="min-w-0 basis-full truncate md:basis-auto">
             <bdi className="font-semibold text-ink">{s.who}</bdi> <span className="text-xs text-muted">{m.actorRole[s.role]}</span>
+            {s.autoStarted && (
+              <span title={m.shiftAutoHint} className="ms-2 bg-amber-400/10 px-1.5 py-px text-xs text-amber-300 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.4)]">
+                {m.shiftAuto}
+              </span>
+            )}
           </span>
           <span className="font-hud text-muted" dir="ltr">
             {dayOf(m, s.startedAt)} {formatDamascusTime(new Date(s.startedAt))} → {s.endedAt ? formatDamascusTime(new Date(s.endedAt)) : <span className="text-free">{m.shiftNow}</span>}

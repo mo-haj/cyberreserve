@@ -8,7 +8,7 @@ import { prisma } from '@/lib/prisma';
 import { now as clockNow, formatDamascusTime } from '@/lib/time';
 import { escapeHtml, tg, tgResult } from '@/lib/telegram/api';
 import { background } from '@/lib/background';
-import { closeStaleShifts, logArena } from '@/lib/activity';
+import { closeStaleShifts, logArena, noShiftAlerts } from '@/lib/activity';
 import { askRatings, nightlySummaries, processFreeWatches } from '@/lib/engage';
 import { GROUP_SELECT } from '@/lib/cafes';
 import { offerLabel } from '@/lib/offers';
@@ -896,6 +896,7 @@ export async function tick(): Promise<void> {
     ['free watches', processFreeWatches],
     ['ratings', askRatings],
     ['summaries', nightlySummaries],
+    ['no shift', noShiftAlerts],
   ] as const) {
     await job(at).catch((err) => console.error(`tick ${name}`, err));
   }

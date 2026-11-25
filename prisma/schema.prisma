@@ -141,6 +141,8 @@ model Cafe {
   closeMin       Int?
   /// Damascus date (YYYY-MM-DD) of the last nightly summary sent to the owners.
   summarySentOn  String?
+  /// Last "nobody is on shift" alert sent to the owners.
+  noShiftAlertAt DateTime?      @db.Timestamptz(3)
   hourlyRate     Decimal        @db.Decimal(12, 2)
   nightShiftRate Decimal        @db.Decimal(12, 2)
   currency       String         @default("SYP")
@@ -434,6 +436,8 @@ model StaffShift {
   userId    String
   startedAt DateTime  @default(now()) @db.Timestamptz(3)
   endedAt   DateTime? @db.Timestamptz(3)
+  /// Started by itself: the person pressed a floor button without starting a shift.
+  autoStarted Boolean @default(false)
   cafe      Cafe      @relation(fields: [cafeId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
