@@ -8,9 +8,12 @@ name: backup
 # user). Without BACKUP_PASSPHRASE nobody can open it - keep the passphrase in
 # your password manager too, or the backups are useless to you as well.
 #
-# Needs two repository secrets (Settings -> Secrets and variables -> Actions):
-#   NEON_DATABASE_URL   the Neon connection string (same as DATABASE_URL in Vercel)
-#   BACKUP_PASSPHRASE   a long random passphrase (40+ characters)
+# Repository secrets (Settings -> Secrets and variables -> Actions):
+#   NEON_DATABASE_URL     the Neon connection string (same as DATABASE_URL in Vercel)
+#   BACKUP_PASSPHRASE     a long random passphrase (40+ characters)
+# Cloudflare R2 (the main, private copy; kept as long as the bucket's lifecycle rule says):
+#   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
+# A short-lived copy is also kept on GitHub (7 days), in case R2 is unreachable.
 # Restore: see RESTORE.md, section D.
 
 on:
@@ -42,10 +45,10 @@ jobs:
         env:
           URL: ${{ secrets.NEON_DATABASE_URL }}
         run: |
-          # pg_dump from PostgreSQL 17 reads Neon's 15/16/17 servers.
-          docker run --rm -e URL postgres:17-alpine sh -c 'pg_dump "$URL" -Fc --no-owner --no-privileges' > db.dump
+          # pg_dump must be the same major version as Neon or newer (Neon runs 18).
+          docker run --rm -e URL postgres:18-alpine sh -c 'pg_dump "$URL" -Fc --no-owner --no-privileges' > db.dump
           # A dump that cannot be listed is not a backup.
-          docker run --rm -v "$PWD:/w" postgres:17-alpine pg_restore --list /w/db.dump > /dev/null
+          docker run --rm -v "$PWD:/w" postgres:18-alpine pg_restore --list /w/db.dump > /dev/null
           echo "dump size: $(wc -c < db.dump) bytes"
           [ "$(wc -c < db.dump)" -gt 10000 ] || { echo "::error::dump is suspiciously small"; exit 1; }
 
@@ -57,10 +60,32 @@ jobs:
           shred -u db.dump 2>/dev/null || rm -f db.dump
           ls -l *.dump.enc
 
-      - name: Keep it for 30 days
+      - name: Upload to Cloudflare R2 (private bucket)
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          AWS_DEFAULT_REGION: auto
+          # R2 does not want the newer default checksums of the AWS CLI.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          if [ -z "$R2_ACCOUNT_ID" ] || [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$R2_BUCKET" ]; then
+            echo "::warning::R2 secrets not set: the backup is only kept on GitHub (7 days)."
+            exit 0
+          fi
+          f="$(ls *.dump.enc)"
+          aws s3 cp "$f" "s3://$R2_BUCKET/daily/$f" --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" --only-show-errors
+          # Read it back: the copy in R2 must be the same size as the file sent.
+          size="$(aws s3api head-object --bucket "$R2_BUCKET" --key "daily/$f" --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" --query ContentLength --output text)"
+          [ "$size" = "$(wc -c < "$f" | tr -d ' ')" ] || { echo "::error::R2 copy has $size bytes, expected $(wc -c < "$f")"; exit 1; }
+          echo "saved to R2: daily/$f ($size bytes)"
+
+      - name: Also keep it on GitHub for 7 days
         uses: actions/upload-artifact@v4
         with:
           name: db-backup-${{ github.run_number }}
           path: '*.dump.enc'
-          retention-days: 30
+          retention-days: 7
           if-no-files-found: error

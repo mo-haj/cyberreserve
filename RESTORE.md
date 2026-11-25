@@ -52,16 +52,26 @@ docker compose exec db-backup sh /usr/local/bin/backup.sh --once
 ## D. Live site (Vercel + Neon): the daily GitHub backup
 
 The `backup` workflow (`.github/workflows/backup.yml`) dumps the Neon database every night at
-03:17 Damascus time and keeps each dump for 30 days, **encrypted** with `BACKUP_PASSPHRASE`.
+03:17 Damascus time, **encrypts** it with `BACKUP_PASSPHRASE`, and stores it in your private
+Cloudflare R2 bucket (folder `daily/`). A second copy stays on GitHub for 7 days.
 
 **Set up once** — GitHub → the repo → Settings → Secrets and variables → Actions → New repository secret:
 - `NEON_DATABASE_URL` = the same value as `DATABASE_URL` in Vercel
 - `BACKUP_PASSPHRASE` = a long random passphrase. Save it in your password manager as well:
   without it the backups cannot be opened by anyone, you included.
 
-Then Actions → **backup** → **Run workflow** once, and check it turns green.
+Cloudflare R2 (once):
+1. Cloudflare → R2 → **Create bucket**, name e.g. `cyberreserve-backups` (keep it private: no public access, no custom domain).
+2. The bucket → Settings → **Object lifecycle rules** → add a rule: delete objects with prefix `daily/` after **90 days**
+   (about 90 × a few MB — far inside the free 10 GB).
+3. R2 → **Manage API tokens** → Create API token: permission **Object Read & Write**, applied to **this bucket only**.
+   Copy the Access Key ID and Secret Access Key (shown once). The Account ID is on the R2 overview page.
+4. Add the GitHub secrets `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` (the bucket name).
 
-**Get a backup** — Actions → backup → pick a run → Artifacts → download `db-backup-…` (a zip) and unzip it.
+Then Actions → **backup** → **Run workflow** once, check it turns green, and that the file appears in the bucket.
+
+**Get a backup** — Cloudflare → R2 → the bucket → `daily/` → download the file you need.
+(Last 7 days only: also Actions → backup → a run → Artifacts → `db-backup-…`, a zip to unzip.)
 
 **Open it** (Git Bash on Windows, or any Linux/Mac terminal):
 
@@ -75,7 +85,7 @@ It asks for the passphrase.
 `DATABASE_URL` in Vercel to it:
 
 ```
-docker run --rm -i postgres:17-alpine pg_restore -d "<NEW_DATABASE_URL>" --no-owner --no-privileges < cyberreserve.dump
+docker run --rm -i postgres:18-alpine pg_restore -d "<NEW_DATABASE_URL>" --no-owner --no-privileges < cyberreserve.dump
 ```
 
 Or into the local Docker stack: section B, with this file.
