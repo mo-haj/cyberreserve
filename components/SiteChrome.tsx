@@ -9,12 +9,14 @@ import { dictionary, type Locale } from '@/lib/i18n';
 export function Logo({ label }: { label: string }) {
   return (
     <Link href="/" className="group flex items-center gap-2.5" aria-label={label}>
-      <span aria-hidden="true" className="grid grid-cols-2 gap-[3px] transition-transform group-hover:scale-110">
-        <span className="h-2.5 w-2.5 rounded-[2px] bg-free shadow-[0_0_8px_#2BFF88]" />
-        <span className="h-2.5 w-2.5 rounded-[2px] bg-busy shadow-[0_0_8px_#FF2D55]" />
-        <span className="h-2.5 w-2.5 rounded-[2px] bg-violet shadow-[0_0_8px_#9D5CFF]" />
-        <span className="h-2.5 w-2.5 rounded-[2px] bg-cyan shadow-[0_0_8px_#29E0FF]" />
-      </span>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/l3ib-logo.webp"
+        alt=""
+        width={44}
+        height={44}
+        className="h-9 w-9 drop-shadow-[0_0_10px_rgba(157,92,255,0.45)] transition-transform group-hover:scale-110 min-[380px]:h-11 min-[380px]:w-11"
+      />
       {/* The brand name is the same in both languages. */}
       <span dir="ltr" className="font-display text-xl font-bold tracking-tight text-ink min-[380px]:text-2xl">
         L<span className="text-violet-soft">3</span>ib
