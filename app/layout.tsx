@@ -50,10 +50,10 @@ export async function generateMetadata(): Promise<Metadata> {
   const site = siteUrl();
   return {
     ...(site ? { metadataBase: new URL(site) } : {}),
-    title: { default: t.meta.title, template: `%s — CyberReserve` },
+    title: { default: t.meta.title, template: `%s — L3ib` },
     description: t.meta.description,
-    applicationName: 'CyberReserve',
-    openGraph: { type: 'website', siteName: 'CyberReserve', title: t.meta.title, description: t.meta.description, locale: 'ar_SY', alternateLocale: ['en_US'] },
+    applicationName: 'L3ib',
+    openGraph: { type: 'website', siteName: 'L3ib', title: t.meta.title, description: t.meta.description, locale: 'ar_SY', alternateLocale: ['en_US'] },
     alternates: { canonical: '/' },
     // Listed by search engines only on the site's own domain (see lib/site.ts).
     ...(indexingOn(await requestHost()) ? {} : { robots: { index: false, follow: false } }),

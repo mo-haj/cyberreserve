@@ -26,7 +26,7 @@ export function pick(locale: Locale, en: string, ar: string): string {
 const ar = {
   join: {
     title: 'هل تملك صالة ألعاب؟',
-    lead: 'أضف صالتك إلى CyberReserve مجانًا: يرى اللاعبون أجهزتك الفارغة الآن ويحجزون أونلاين، وتصلك الحجوزات على تيليغرام.',
+    lead: 'أضف صالتك إلى L3ib مجانًا: يرى اللاعبون أجهزتك الفارغة الآن ويحجزون أونلاين، وتصلك الحجوزات على تيليغرام.',
     perks: ['خريطة حيّة لأجهزتك: فاضي / مشغول / صيانة', 'حجوزات أونلاين مع تأكيد الحضور تلقائيًا', 'عروض، بطولات، وتقييمات من لاعبين زاروك فعلًا', 'لوحة تحكم للمالك والموظفين وسجل لكل ضغطة'],
     formTitle: 'طلب انضمام',
     signIn: 'سجّل الدخول عبر تيليغرام لإرسال الطلب',
@@ -99,7 +99,7 @@ const ar = {
     copied: 'تم النسخ',
   },
   meta: {
-    title: 'CyberReserve — صالات الألعاب في سوريا',
+    title: 'L3ib — صالات الألعاب في سوريا',
     description: 'شوف الأجهزة الفاضية الآن في صالات الألعاب في كل سوريا.',
   },
   nav: {
@@ -356,12 +356,12 @@ const ar = {
     nearMeWait: 'جارٍ تحديد موقعك…',
     nearMeDenied: 'لم نتمكن من معرفة موقعك. اسمح للمتصفح بالوصول إلى الموقع ثم جرّب مرة أخرى.',
     km: (n: string) => `${n} كم`,
-    noneInCity: (city: string) => `لا توجد صالات في ${city} بعد. هل تعرف صالة هناك؟ أخبرها عن CyberReserve.`,
+    noneInCity: (city: string) => `لا توجد صالات في ${city} بعد. هل تعرف صالة هناك؟ أخبرها عن L3ib.`,
     noResults: 'ما في صالة بهالاسم. جرّب اسماً آخر أو منطقة ثانية.',
     empty: 'لا توجد صالات بعد. ستظهر هنا فور انضمامها.',
   },
   how: {
-    title: 'كيف يعمل CyberReserve',
+    title: 'كيف يعمل L3ib',
     intro: 'ثلاث خطوات، من البيت إلى مقعدك.',
     step: (n: number) => `الخطوة ${n}`,
     steps: [
@@ -423,7 +423,7 @@ type Dict = typeof ar;
 const en: Dict = {
   join: {
     title: 'Do you run a gaming arena?',
-    lead: 'Add your arena to CyberReserve for free: players see your free stations right now and book online, and bookings reach you on Telegram.',
+    lead: 'Add your arena to L3ib for free: players see your free stations right now and book online, and bookings reach you on Telegram.',
     perks: ['A live map of your stations: free / busy / maintenance', 'Online bookings with automatic “still coming?” checks', 'Offers, tournaments, and ratings from players who actually visited', 'A dashboard for owners and staff, with a log of every press'],
     formTitle: 'Request to join',
     signIn: 'Sign in with Telegram to send the request',
@@ -496,7 +496,7 @@ const en: Dict = {
     copied: 'Copied',
   },
   meta: {
-    title: 'CyberReserve — gaming arenas in Syria',
+    title: 'L3ib — gaming arenas in Syria',
     description: 'See which PCs are free right now in gaming arenas across Syria.',
   },
   nav: {
@@ -746,12 +746,12 @@ const en: Dict = {
     nearMeWait: 'Finding your location…',
     nearMeDenied: 'We could not get your location. Allow location access in your browser and try again.',
     km: (n: string) => `${n} km`,
-    noneInCity: (city: string) => `No arenas in ${city} yet. Know one there? Tell them about CyberReserve.`,
+    noneInCity: (city: string) => `No arenas in ${city} yet. Know one there? Tell them about L3ib.`,
     noResults: 'No arena matches. Try another name or area.',
     empty: 'No arenas yet. They appear here as soon as they join.',
   },
   how: {
-    title: 'How CyberReserve works',
+    title: 'How L3ib works',
     intro: 'Three steps, from home to your seat.',
     step: (n: number) => `Step ${n}`,
     steps: [

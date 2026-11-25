@@ -16,8 +16,8 @@ export function Logo({ label }: { label: string }) {
         <span className="h-2.5 w-2.5 rounded-[2px] bg-cyan shadow-[0_0_8px_#29E0FF]" />
       </span>
       {/* The brand name is the same in both languages. */}
-      <span dir="ltr" className="font-display text-base font-bold tracking-tight text-ink min-[380px]:text-xl">
-        Cyber<span className="text-violet-soft">Reserve</span>
+      <span dir="ltr" className="font-display text-xl font-bold tracking-tight text-ink min-[380px]:text-2xl">
+        L<span className="text-violet-soft">3</span>ib
       </span>
     </Link>
   );

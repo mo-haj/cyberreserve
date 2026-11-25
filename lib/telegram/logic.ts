@@ -91,7 +91,7 @@ export const LANG_BUTTONS: { locale: BotLocale; label: string }[] = [
 
 export const BOT_TEXT = {
   ar: {
-    welcome: 'أهلاً بك في بوت CyberReserve. لتسجيل الدخول اضغط "تسجيل الدخول" على الموقع واتبع الخطوات.',
+    welcome: 'أهلاً بك في بوت L3ib. لتسجيل الدخول اضغط "تسجيل الدخول" على الموقع واتبع الخطوات.',
     askCode:
       'اكتب هنا رمز الدخول المكوّن من 6 أرقام الظاهر على الموقع.\n\nإذا لم تبدأ تسجيل الدخول بنفسك الآن، تجاهل هذه الرسالة ولا تعطِ الرمز لأحد.',
     notACode: 'أرسل الرمز فقط: 6 أرقام كما تظهر على الموقع، مثل 482913.',
@@ -112,7 +112,7 @@ export const BOT_TEXT = {
     done: 'تم تسجيل الدخول ✅ ارجع إلى الموقع، ستدخل تلقائياً خلال ثوانٍ.',
   },
   en: {
-    welcome: 'Welcome to the CyberReserve bot. To sign in, press "Sign in" on the website and follow the steps.',
+    welcome: 'Welcome to the L3ib bot. To sign in, press "Sign in" on the website and follow the steps.',
     askCode:
       'Type the 6-digit sign-in code shown on the website here.\n\nIf you did not just start signing in yourself, ignore this message and never give the code to anyone.',
     notACode: 'Send only the code: the 6 digits shown on the website, like 482913.',
@@ -156,7 +156,7 @@ export const BOT_COMMANDS = {
 export const MEMBER_TEXT = {
   ar: {
     home: (name: string, next: string | null) =>
-      `👋 أهلاً ${name}، حسابك على CyberReserve مربوط بهذا الحساب على تيليغرام.\n\n` +
+      `👋 أهلاً ${name}، حسابك على L3ib مربوط بهذا الحساب على تيليغرام.\n\n` +
       (next ? `🎮 حجزك القادم:\n${next}\n\n` : '') +
       `الحجز يتم من الموقع. لتسجيل الدخول على جهاز جديد اضغط "تسجيل الدخول" على الموقع.`,
     noBookings: 'لا حجوزات قادمة. احجز جهازك من الموقع.',
@@ -166,7 +166,7 @@ export const MEMBER_TEXT = {
   },
   en: {
     home: (name: string, next: string | null) =>
-      `👋 Hi ${name}, your CyberReserve account is linked to this Telegram account.\n\n` +
+      `👋 Hi ${name}, your L3ib account is linked to this Telegram account.\n\n` +
       (next ? `🎮 Your next booking:\n${next}\n\n` : '') +
       `Booking is done on the website. To sign in on a new device, press "Sign in" on the website.`,
     noBookings: 'No upcoming bookings. Book a station on the website.',

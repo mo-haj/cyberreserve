@@ -68,7 +68,7 @@ export async function subscriptionReminders(at = now()): Promise<void> {
     await tellOwners(
       c.id,
       c.slug,
-      `⏳ ${c.nameAr}: سينتهي اشتراك صالتك في منصة حجوزات الصالات الأونلاين (CyberReserve) بتاريخ ${formatDamascusDate(c.subEndsAt!)}.\nبعد انتهائه يتوقف الحجز الأونلاين لصالتك.\n\n${renewLine()}`,
+      `⏳ ${c.nameAr}: سينتهي اشتراك صالتك في منصة حجوزات الصالات الأونلاين (L3ib) بتاريخ ${formatDamascusDate(c.subEndsAt!)}.\nبعد انتهائه يتوقف الحجز الأونلاين لصالتك.\n\n${renewLine()}`,
     );
   }
   const ended = await prisma.cafe.findMany({
@@ -82,7 +82,7 @@ export async function subscriptionReminders(at = now()): Promise<void> {
     await tellOwners(
       c.id,
       c.slug,
-      `⛔ ${c.nameAr}: انتهى اشتراك صالتك في منصة حجوزات الصالات الأونلاين (CyberReserve)، وتوقف الحجز الأونلاين.\nالحجوزات الموجودة باقية كما هي.\n\n${renewLine()}`,
+      `⛔ ${c.nameAr}: انتهى اشتراك صالتك في منصة حجوزات الصالات الأونلاين (L3ib)، وتوقف الحجز الأونلاين.\nالحجوزات الموجودة باقية كما هي.\n\n${renewLine()}`,
     );
   }
 }

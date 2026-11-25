@@ -20,10 +20,10 @@ export function termsDoc(locale: 'ar' | 'en', contact: string): LegalDoc {
     return {
       title: 'شروط الاستخدام',
       updated: `آخر تحديث: ${UPDATED}`,
-      intro: 'باستخدامك CyberReserve أو تسجيل الدخول إليه فأنت توافق على هذه الشروط. إذا لم توافق عليها فلا تستخدم الموقع.',
+      intro: 'باستخدامك L3ib أو تسجيل الدخول إليه فأنت توافق على هذه الشروط. إذا لم توافق عليها فلا تستخدم الموقع.',
       sections: [
         {
-          title: 'ما هو CyberReserve',
+          title: 'ما هو L3ib',
           body: [
             'دليل لصالات الألعاب في سوريا يعرض الأجهزة الفاضية مباشرة، ويتيح الحجز عند تفعيله.',
             'كل صالة نشاط تجاري مستقل، وهي المسؤولة عن أجهزتها وأسعارها ودوامها وقواعدها وخدمتها. نحن نعرض المعلومات التي تقدّمها الصالة، وقد تتغير حالة الأجهزة في أي لحظة.',
@@ -70,10 +70,10 @@ export function termsDoc(locale: 'ar' | 'en', contact: string): LegalDoc {
   return {
     title: 'Terms of use',
     updated: `Last updated: ${UPDATED}`,
-    intro: 'By using or signing in to CyberReserve you agree to these terms. If you do not agree, do not use the site.',
+    intro: 'By using or signing in to L3ib you agree to these terms. If you do not agree, do not use the site.',
     sections: [
       {
-        title: 'What CyberReserve is',
+        title: 'What L3ib is',
         body: [
           'A directory of gaming arenas in Syria that shows free PCs live and, once enabled, lets you book.',
           'Each arena is an independent business and is responsible for its PCs, prices, hours, rules and service. We show the information the arena provides, and station status can change at any moment.',
