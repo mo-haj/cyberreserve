@@ -4,6 +4,7 @@
 // (last 30 days: busiest hours and days, regulars, ratings).
 import { useEffect, useState } from 'react';
 import { Field, IconButton, TextArea } from '@/components/manage/fields';
+import { ConfirmDialog } from '@/components/manage/moderation';
 import type { Action } from '@/components/manage/ManagePanel';
 import { pick, type Locale } from '@/lib/i18n';
 import type { ManageText } from '@/lib/i18n-manage';
@@ -26,8 +27,22 @@ function localInput(iso: string): string {
 export function TournamentsTab({ locale, m, data, action }: { locale: Locale; m: ManageText; data: ManageData; action: Action }) {
   const [editing, setEditing] = useState<T | 'new' | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<T | null>(null);
   return (
     <div className="hud space-y-5 p-5 sm:p-7">
+      {removing && (
+        <ConfirmDialog
+          title={m.tourRemoveConfirm}
+          body={pick(locale, removing.titleEn, removing.titleAr)}
+          confirmLabel={m.remove}
+          cancelLabel={m.cancel}
+          danger
+          onConfirm={async () => {
+            await action.run(`t-${removing.id}`, { action: 'removeTournament', id: removing.id });
+          }}
+          onClose={() => setRemoving(null)}
+        />
+      )}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-xl text-sm text-muted">{m.tourHint}</p>
         <button type="button" className="btn-neon text-sm" onClick={() => setEditing('new')}>
@@ -59,9 +74,7 @@ export function TournamentsTab({ locale, m, data, action }: { locale: Locale; m:
                 )}
                 <IconButton
                   label={m.remove}
-                  onClick={() => {
-                    if (window.confirm(m.tourRemoveConfirm)) void action.run(`t-${t.id}`, { action: 'removeTournament', id: t.id });
-                  }}
+                  onClick={() => setRemoving(t)}
                 >
                   <path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" strokeLinejoin="round" />
                 </IconButton>

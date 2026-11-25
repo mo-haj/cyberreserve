@@ -15,6 +15,7 @@ import type { ManageText } from '@/lib/i18n-manage';
 import type { ManageData } from '@/lib/manage/service';
 import type { ActivityRow, ShiftRow } from '@/lib/activity';
 import { formatDamascusDate, formatDamascusTime } from '@/lib/time';
+import { reasonText } from '@/lib/booking/texts';
 
 // ------------------------------------------------------------------ players
 
@@ -705,8 +706,10 @@ function LogHead({ m }: { m: ManageText }) {
   );
 }
 
-function LogRow({ m, r }: { m: ManageText; r: Row }) {
+function LogRow({ m, r, locale }: { m: ManageText; r: Row; locale: Locale }) {
   const t = tone(r.action);
+  // Ready-made cancel reasons are stored as keys ("k:taken"): show their words.
+  const reason = r.reason ? reasonText(r.reason, locale) : '';
   return (
     <li className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm odd:bg-white/[0.025] ${LOG_COLS}`}>
       <span className="font-hud text-muted" dir="ltr">
@@ -722,14 +725,14 @@ function LogRow({ m, r }: { m: ManageText; r: Row }) {
       <span className="text-muted">{r.pcNumber != null ? m.pcShort(r.pcNumber) : <span className="hidden md:inline">—</span>}</span>
       <span className="min-w-0 truncate text-muted">{r.player && r.actor !== 'PLAYER' ? <bdi>{r.player}</bdi> : <span className="hidden md:inline">—</span>}</span>
       <span className="min-w-0 truncate text-muted">
-        {[r.minutes != null ? m.minShort(r.minutes) : '', r.reason ? `«${r.reason}»` : ''].filter(Boolean).join(' · ') || <span className="hidden md:inline">—</span>}
+        {[r.minutes != null ? m.minShort(r.minutes) : '', reason ? `«${reason}»` : ''].filter(Boolean).join(' · ') || <span className="hidden md:inline">—</span>}
       </span>
     </li>
   );
 }
 
 /** Rows grouped under a heading per day. */
-function DayGroups({ m, rows }: { m: ManageText; rows: Row[] }) {
+function DayGroups({ m, rows, locale }: { m: ManageText; rows: Row[]; locale: Locale }) {
   const days: [string, Row[]][] = [];
   for (const r of rows) {
     const d = formatDamascusDate(new Date(r.at));
@@ -745,7 +748,7 @@ function DayGroups({ m, rows }: { m: ManageText; rows: Row[] }) {
           <h4 className="bg-violet/10 px-4 py-1.5 text-xs font-semibold text-violet-soft">{dayOf(m, list[0].at, true)}</h4>
           <ol>
             {list.map((r) => (
-              <LogRow key={r.id} m={m} r={r} />
+              <LogRow key={r.id} m={m} r={r} locale={locale} />
             ))}
           </ol>
         </div>
@@ -795,12 +798,12 @@ function duration(m: ManageText, from: string, to: string | null) {
   return m.lasted(Math.floor(mins / 60), mins % 60);
 }
 
-function ShiftLog({ m, rows }: { m: ManageText; rows: Row[] }) {
+function ShiftLog({ m, rows, locale }: { m: ManageText; rows: Row[]; locale: Locale }) {
   const p = usePages(rows, 15);
   if (rows.length === 0) return <p className="py-3 text-sm text-muted">{m.logEmpty}</p>;
   return (
     <>
-      <DayGroups m={m} rows={p.slice} />
+      <DayGroups m={m} rows={p.slice} locale={locale} />
       <Pager m={m} {...p} />
     </>
   );
@@ -823,7 +826,7 @@ function ShiftHead({ m }: { m: ManageText }) {
 }
 
 /** Who pressed what, in which shift (owners and the site admin). */
-export function Activity({ m, slug }: { m: ManageText; slug: string }) {
+export function Activity({ m, slug, locale }: { m: ManageText; slug: string; locale: Locale }) {
   const [loaded, setLoaded] = useState<{ rows: ActivityRow[]; shifts: ShiftRow[] } | null>(null);
   // Loaded when the tab opens, refreshed every 30 s while it stays open.
   useEffect(() => {
@@ -886,7 +889,7 @@ export function Activity({ m, slug }: { m: ManageText; slug: string }) {
         </button>
         {isOpen && (
           <div className="border-t border-line/60 px-2 pb-3 pt-3 md:px-4">
-            <ShiftLog m={m} rows={rowsOf(s)} />
+            <ShiftLog m={m} rows={rowsOf(s)} locale={locale} />
           </div>
         )}
       </li>
@@ -942,7 +945,7 @@ export function Activity({ m, slug }: { m: ManageText; slug: string }) {
           <div className="mt-4">
             {rows.length ? (
               <>
-                <DayGroups m={m} rows={logPages.slice} />
+                <DayGroups m={m} rows={logPages.slice} locale={locale} />
                 <Pager m={m} {...logPages} />
               </>
             ) : (

@@ -113,7 +113,7 @@ function toChoice(v: typeof blankBan): BanChoice | null {
   return { minutes: Math.min(n * unit.minutes, 5 * 365 * 24 * 60), reason: v.reason.trim() };
 }
 
-function Shell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+export function Shell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     ref.current?.showModal();
@@ -261,6 +261,81 @@ export function BanDialog({
           {m.cancel}
         </button>
       </div>
+    </Shell>
+  );
+}
+
+/**
+ * A confirm box in the site's style (instead of the browser's confirm/prompt).
+ * With `input`, asks for a short text too (optional unless `required`).
+ */
+export function ConfirmDialog({
+  title,
+  body,
+  input,
+  confirmLabel,
+  cancelLabel,
+  danger = false,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  body?: string;
+  input?: { label: string; placeholder?: string; required?: boolean; maxLength?: number };
+  confirmLabel: string;
+  cancelLabel: string;
+  danger?: boolean;
+  onConfirm: (text: string) => void | Promise<void>;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const ok = !input?.required || text.trim().length > 0;
+  return (
+    <Shell title={title} onClose={onClose}>
+      <form
+        className="space-y-4 p-6 pt-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!ok) return;
+          setBusy(true);
+          await onConfirm(text.trim());
+          setBusy(false);
+          onClose();
+        }}
+      >
+        {body && <p className="text-sm leading-relaxed text-muted">{body}</p>}
+        {input && (
+          <label className="block">
+            <span className="text-sm font-semibold text-ink">{input.label}</span>
+            <textarea
+              autoFocus
+              rows={3}
+              value={text}
+              maxLength={input.maxLength ?? 300}
+              placeholder={input.placeholder}
+              onChange={(e) => setText(e.target.value)}
+              className="mt-1.5 w-full resize-none bg-void/70 px-3 py-2.5 text-ink placeholder:text-muted/60 shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] outline-none focus:shadow-[inset_0_0_0_1px_rgba(41,224,255,0.8)]"
+            />
+          </label>
+        )}
+        <div className="flex flex-wrap justify-end gap-3">
+          <button type="button" className="btn-ghost text-sm" onClick={onClose}>
+            {cancelLabel}
+          </button>
+          <button
+            type="submit"
+            disabled={!ok || busy}
+            className={
+              danger
+                ? 'px-5 py-2.5 text-sm font-semibold text-busy shadow-[inset_0_0_0_1px_rgba(255,45,85,0.7)] transition-colors hover:bg-busy hover:text-white disabled:opacity-40'
+                : 'btn-neon text-sm'
+            }
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </form>
     </Shell>
   );
 }

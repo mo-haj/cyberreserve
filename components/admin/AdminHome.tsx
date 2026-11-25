@@ -10,17 +10,41 @@ import { pick, type Locale } from '@/lib/i18n';
 import { manageText, type ManageText } from '@/lib/i18n-manage';
 import { slugify } from '@/lib/manage/rules';
 import type { JoinView } from '@/lib/join';
+import { ConfirmDialog } from '@/components/manage/moderation';
 
 type JoinRow = JoinView & { who: string; phone: string };
 
-/** Join requests: approve (creates the hidden arena, requester = owner) or decline. */
-function Requests({ locale, m, initial }: { locale: Locale; m: ManageText; initial: JoinRow[] }) {
+/**
+ * Join requests behind a bell: a small button with the number waiting; it
+ * opens a panel where each request is approved or declined. Opens by itself
+ * when the page is reached from the Telegram alert (/admin#requests).
+ */
+function RequestsBell({ locale, m, initial }: { locale: Locale; m: ManageText; initial: JoinRow[] }) {
   const router = useRouter();
   const [list, setList] = useState(initial);
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  async function decide(r: JoinRow, decision: 'approve' | 'decline') {
-    const reason = decision === 'decline' ? window.prompt(m.reqReason) : '';
-    if (reason === null) return;
+  const [declining, setDeclining] = useState<JoinRow | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const pending = list.filter((r) => r.status === 'PENDING').length;
+
+  useEffect(() => {
+    if (window.location.hash === '#requests') setOpen(true);
+  }, []);
+  // Click outside or Escape closes the panel (not while the decline box is open).
+  useEffect(() => {
+    if (!open || declining) return;
+    const out = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('pointerdown', out);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('pointerdown', out);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [open, declining]);
+
+  async function decide(r: JoinRow, decision: 'approve' | 'decline', reason = '') {
     setBusy(r.id);
     const res = await fetch(`/api/admin/requests/${r.id}`, {
       method: 'POST',
@@ -33,55 +57,100 @@ function Requests({ locale, m, initial }: { locale: Locale; m: ManageText; initi
     setList((l) => l.map((x) => (x.id === r.id ? { ...x, status: decision === 'approve' ? 'APPROVED' : 'DECLINED', cafeSlug: j.slug ?? null } : x)));
     router.refresh();
   }
-  const pending = list.filter((r) => r.status === 'PENDING').length;
+
   return (
-    <section id="requests" className="hud scroll-mt-6 p-5 sm:p-6">
-      <h2 className="font-display text-xl font-bold text-ink">
-        {m.reqTitle} {pending > 0 && <span className="ms-2 bg-amber-400/20 px-2 py-0.5 font-hud text-sm text-amber-300">{pending}</span>}
-      </h2>
-      <ul className="mt-4 space-y-2">
-        {list.map((r) => (
-          <li key={r.id} className={`flex flex-wrap items-center gap-x-5 gap-y-2 bg-panel2/50 px-4 py-3 text-sm ${r.status === 'PENDING' ? '' : 'opacity-60'}`}>
-            <span className="min-w-0 flex-1 basis-full md:basis-0">
-              <span className="block font-semibold text-ink">
-                {r.nameAr} <span className="font-normal text-muted">({r.nameEn})</span>
-              </span>
-              <span className="block text-muted">
-                {r.area}، {cityName(r.city, locale)} · {r.address} · {m.reqStations(r.stations)}
-                {r.software && ` · ${r.software}`}
-              </span>
-              {r.note && <span className="block text-muted">«{r.note}»</span>}
-            </span>
-            <span className="text-muted">
-              <bdi className="text-ink">{r.who}</bdi>{' '}
-              <bdi dir="ltr" className="font-hud">
-                {r.phone}
-              </bdi>
-            </span>
-            {r.status === 'PENDING' ? (
-              <span className="flex gap-2">
-                <button type="button" className="btn-neon text-sm" disabled={busy === r.id} onClick={() => decide(r, 'approve')}>
-                  {m.reqApprove}
-                </button>
-                <button type="button" className="btn-ghost text-sm" disabled={busy === r.id} onClick={() => decide(r, 'decline')}>
-                  {m.reqDecline}
-                </button>
-              </span>
-            ) : r.status === 'APPROVED' ? (
-              r.cafeSlug ? (
-                <Link href={`/admin/${r.cafeSlug}`} className="text-free hover:underline">
-                  {m.reqApproved} ›
-                </Link>
-              ) : (
-                <span className="text-free">{m.reqApproved}</span>
-              )
-            ) : (
-              <span className="text-busy">{m.reqDeclined}</span>
-            )}
-          </li>
-        ))}
-      </ul>
-    </section>
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-label={m.reqTitle}
+        title={m.reqTitle}
+        className={`relative grid h-11 w-11 place-items-center transition-colors ${
+          open ? 'bg-violet/25 text-ink' : 'text-muted hover:bg-violet/15 hover:text-ink'
+        } shadow-[inset_0_0_0_1px_rgba(157,92,255,0.45)]`}
+      >
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9" strokeLinejoin="round" />
+          <path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" strokeLinecap="round" />
+        </svg>
+        {pending > 0 && (
+          <span className="absolute -end-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-busy px-1 font-hud text-xs font-bold text-white shadow-[0_0_10px_rgba(255,45,85,0.7)]">
+            {pending}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="panel-in fixed inset-x-4 top-20 z-40 sm:absolute sm:inset-x-auto sm:end-0 sm:top-full sm:mt-2 sm:w-[26rem] bg-[#0B0F24] shadow-[inset_0_0_0_1px_rgba(157,92,255,0.55),0_18px_40px_-12px_rgba(0,0,0,0.8)]">
+          <p className="border-b border-line px-4 py-3 font-display text-base font-bold text-ink">{m.reqTitle}</p>
+          {list.length === 0 ? (
+            <p className="px-4 py-6 text-center text-sm text-muted">{m.reqEmpty}</p>
+          ) : (
+            <ul className="cr-scroll max-h-[60vh] divide-y divide-line/60 overflow-y-auto">
+              {list.map((r) => (
+                <li key={r.id} className={`space-y-2 px-4 py-3 text-sm ${r.status === 'PENDING' ? '' : 'opacity-55'}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="min-w-0">
+                      <span className="block font-semibold text-ink">
+                        {r.nameAr} <span className="font-normal text-muted">({r.nameEn})</span>
+                      </span>
+                      <span className="block text-xs text-muted">
+                        {r.area}، {cityName(r.city, locale)} · {m.reqStations(r.stations)}
+                        {r.software && ` · ${r.software}`}
+                      </span>
+                    </p>
+                    {r.status === 'APPROVED' ? (
+                      r.cafeSlug ? (
+                        <Link href={`/admin/${r.cafeSlug}`} className="shrink-0 text-xs text-free hover:underline">
+                          {m.reqApproved} ›
+                        </Link>
+                      ) : (
+                        <span className="shrink-0 text-xs text-free">{m.reqApproved}</span>
+                      )
+                    ) : r.status === 'DECLINED' ? (
+                      <span className="shrink-0 text-xs text-busy">{m.reqDeclined}</span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-muted">
+                    📍 {r.address}
+                    <br />
+                    👤 <bdi className="text-ink">{r.who}</bdi>{' '}
+                    <bdi dir="ltr" className="font-hud">
+                      {r.phone}
+                    </bdi>
+                  </p>
+                  {r.note && <p className="text-xs text-muted">«{r.note}»</p>}
+                  {r.status === 'PENDING' && (
+                    <div className="flex gap-2 pt-1">
+                      <button type="button" className="btn-neon flex-1 py-1.5 text-sm" disabled={busy === r.id} onClick={() => decide(r, 'approve')}>
+                        {m.reqApprove}
+                      </button>
+                      <button type="button" className="btn-ghost flex-1 py-1.5 text-sm" disabled={busy === r.id} onClick={() => setDeclining(r)}>
+                        {m.reqDecline}
+                      </button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {declining && (
+        <ConfirmDialog
+          title={m.reqDeclineTitle(declining.nameAr)}
+          body={m.reqDeclineBody}
+          input={{ label: m.reqReason, placeholder: m.reqReasonPlaceholder }}
+          confirmLabel={m.reqDecline}
+          cancelLabel={m.cancel}
+          danger
+          onConfirm={(reason) => decide(declining, 'decline', reason)}
+          onClose={() => setDeclining(null)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -115,7 +184,6 @@ export default function AdminHome({
 
   return (
     <div className="space-y-6">
-      {superAdmin && requests.length > 0 && <Requests locale={locale} m={m} initial={requests} />}
       <div className="flex flex-wrap items-end justify-between gap-4 pt-2">
         <div>
           {superAdmin && (
@@ -125,9 +193,12 @@ export default function AdminHome({
           {(superAdmin || arenas.length > 0) && <p className="mt-1 text-muted">{superAdmin ? m.allArenas : m.myArenas}</p>}
         </div>
         {superAdmin && (
-          <button type="button" className="btn-neon" onClick={() => setAdding(true)}>
-            + {m.addArena}
-          </button>
+          <div className="flex items-center gap-3">
+            <RequestsBell locale={locale} m={m} initial={requests} />
+            <button type="button" className="btn-neon" onClick={() => setAdding(true)}>
+              + {m.addArena}
+            </button>
+          </div>
         )}
       </div>
 

@@ -216,7 +216,7 @@ export default function ManagePanel({
       {tab === 'players' && owner && <Players locale={locale} m={m} data={data} action={action} />}
       {tab === 'posts' && owner && <Posts locale={locale} slug={slug} m={m} data={data} setData={setData} action={action} />}
       {tab === 'owners' && superAdmin && <Access m={m} data={data} action={action} />}
-      {tab === 'activity' && owner && <Activity m={m} slug={slug} />}
+      {tab === 'activity' && owner && <Activity m={m} slug={slug} locale={locale} />}
       {tab === 'tournaments' && owner && <TournamentsTab locale={locale} m={m} data={data} action={action} />}
       {tab === 'stats' && owner && <StatsTab m={m} slug={slug} superAdmin={superAdmin} action={action} />}
     </div>
