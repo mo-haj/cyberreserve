@@ -186,8 +186,8 @@ export const MEMBER_TEXT = {
 
 /** The two buttons kept at the bottom of the chat for signed-in players. */
 export const MEMBER_BUTTONS = {
-  ar: { book: '🎮 احجز', favorites: '⭐ مفضّلتي', bookings: '📋 حجوزاتي', tournaments: '🏆 بطولاتي', support: '🛟 المساعدة' },
-  en: { book: '🎮 Book', favorites: '⭐ Favourites', bookings: '📋 My bookings', tournaments: '🏆 Tournaments', support: '🛟 Help' },
+  ar: { book: '🎮 احجز', favorites: '⭐ مفضّلتي', bookings: '📋 حجوزاتي', tournaments: '🏆 بطولاتي', support: '🛟 المساعدة', language: '🌐 Language' },
+  en: { book: '🎮 Book', favorites: '⭐ Favourites', bookings: '📋 My bookings', tournaments: '🏆 Tournaments', support: '🛟 Help', language: '🌐 اللغة' },
 } as const;
 
 export type MemberAction = 'book' | 'favorites' | 'bookings' | 'tournaments' | 'support' | 'language';

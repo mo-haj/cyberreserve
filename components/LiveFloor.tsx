@@ -138,6 +138,7 @@ export default function LiveFloor({
   const typeOrder: string[] = [...new Set(data.pcs.map((p) => p.type as string))];
   groups.sort((a, b) => typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type) || Number(!!a.zone?.isVip) - Number(!!b.zone?.isVip));
   const order = new Map(data.pcs.map((p, i) => [p.pcNumber, i]));
+  const vipZones = new Set(zones.filter((z) => z.isVip).map((z) => z.id));
   // "Book any station of this group": the player picks a time, the server a station.
   const anyButton = (g: (typeof groups)[number]) =>
     compact || g.pcs.every((p) => p.status === 'maintenance') ? null : (
@@ -204,6 +205,14 @@ export default function LiveFloor({
                       <span className={`absolute start-2 top-1.5 font-hud font-bold leading-none ${compact ? 'text-xs' : 'text-sm'}`}>
                         {String(p.typeIndex).padStart(2, '0')}
                       </span>
+                      {/* A station in a VIP zone says so on its tile, not only in the booking window. */}
+                      {vipZones.has(p.groupId ?? '') && (
+                        <span
+                          className={`absolute end-1.5 top-1.5 bg-gold font-hud font-bold leading-none text-void ${compact ? 'px-1 py-px text-[0.5rem]' : 'px-1.5 py-0.5 text-[0.625rem]'}`}
+                        >
+                          VIP
+                        </span>
+                      )}
                       <StationIcon type={p.type} className={compact ? 'mt-2 h-7 w-8' : 'mt-3 h-9 w-10 sm:h-11 sm:w-12'} />
                       {!compact && (
                         <span className="text-[0.6875rem] leading-tight text-ink/75">{until ? t.station.until(until) : t.status[p.status]}</span>

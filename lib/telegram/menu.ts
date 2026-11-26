@@ -3,7 +3,7 @@
 // message (Telegram HTML) and the buttons under it.
 import { prisma } from '@/lib/prisma';
 import { CITIES } from '@/lib/cities';
-import { freeStations } from '@/lib/engage';
+import { derivePcViews, STATION_TYPES, type StationType } from '@/lib/availability';
 import { whenText } from '@/lib/engage-texts';
 import { isOpenAt } from '@/lib/hours';
 import { siteUrl } from '@/lib/site';
@@ -35,8 +35,10 @@ const T = {
     favTitle: '⭐ <b>صالاتك المفضلة</b>',
     favEmpty:
       'لا توجد صالات مفضلة بعد.\n\nافتح صفحة أي صالة على الموقع واضغط <b>⭐ متابعة</b>، فتظهر هنا ويصلك جديدها من عروض وبطولات.',
-    free: (n: number, total: number) => `🖥 ${n} من ${total} أجهزة متاحة الآن`,
-    full: '🖥 كل الأجهزة مشغولة الآن',
+    // One line per station type: "🖥 PC: 12 متاح من 14 (2 خارج الخدمة)".
+    typeLine: (icon: string, type: string, free: number, total: number, off: number) =>
+      `${icon} ${type}: ${free === 0 && total - off > 0 ? 'كلها مشغولة' : `${free} متاح من ${total}`}${off > 0 ? ` (${off} خارج الخدمة)` : ''}`,
+    noStations: '🖥 لا توجد أجهزة مسجّلة بعد',
     closed: '🌙 مغلقة الآن',
     favHint: 'اضغط اسم الصالة لفتح صفحتها والحجز.',
     tourTitle: '🏆 <b>بطولاتك القادمة</b>',
@@ -55,8 +57,9 @@ const T = {
     favTitle: '⭐ <b>Your favourite arenas</b>',
     favEmpty:
       'No favourite arenas yet.\n\nOpen any arena page on the website and press <b>⭐ Follow</b>: it shows up here, and its new offers and tournaments reach you.',
-    free: (n: number, total: number) => `🖥 ${n} of ${total} stations free now`,
-    full: '🖥 All stations are busy right now',
+    typeLine: (icon: string, type: string, free: number, total: number, off: number) =>
+      `${icon} ${type}: ${free === 0 && total - off > 0 ? 'all busy' : `${free} of ${total} free`}${off > 0 ? ` (${off} out of service)` : ''}`,
+    noStations: '🖥 No stations listed yet',
     closed: '🌙 Closed now',
     favHint: 'Tap an arena name to open its page and book.',
     tourTitle: '🏆 <b>Your upcoming tournaments</b>',
@@ -84,12 +87,40 @@ async function favouriteArenas(userId: string, take: number) {
           city: true,
           openMin: true,
           closeMin: true,
-          _count: { select: { devices: { where: { archivedAt: null, isMaintenance: false } } } },
         },
       },
     },
   });
   return rows.map((r) => r.cafe);
+}
+
+/**
+ * Free / total / out of service per station type, exactly as the arena page
+ * counts them (lib/availability), so the bot and the website never disagree.
+ */
+async function liveByType(cafeId: string, at: Date) {
+  const devices = await prisma.device.findMany({
+    where: { cafeId, archivedAt: null },
+    select: { id: true, pcNumber: true, type: true, isMaintenance: true, specs: true },
+  });
+  const bookings = await prisma.booking.findMany({
+    where: { device: { cafeId }, status: { in: ['PENDING', 'CONFIRMED'] }, startTime: { lte: at }, endTime: { gt: at } },
+    select: { deviceId: true, startTime: true, endTime: true, status: true },
+  });
+  const pcs = derivePcViews(
+    devices.map((d) => ({ ...d, type: d.type as StationType })),
+    bookings,
+    at,
+  );
+  return STATION_TYPES.map((type) => {
+    const of = pcs.filter((p) => p.type === type);
+    return {
+      type,
+      total: of.length,
+      free: of.filter((p) => p.status === 'free').length,
+      off: of.filter((p) => p.status === 'maintenance').length,
+    };
+  }).filter((x) => x.total > 0);
 }
 
 export async function bookScreen(userId: string, lang: Lang): Promise<Screen> {
@@ -114,17 +145,19 @@ export async function favouritesScreen(userId: string, lang: Lang): Promise<Scre
   const buttons: Button[][] = [];
   for (const c of favs) {
     const name = lang === 'ar' ? c.nameAr : c.nameEn;
-    const total = c._count.devices;
-    const open = isOpenAt(c.openMin, c.closeMin, at);
+    const live = await liveByType(c.id, at);
+    const anyFree = live.some((x) => x.free > 0);
     let dot: string;
     let status: string;
-    if (open === false) {
+    if (isOpenAt(c.openMin, c.closeMin, at) === false) {
       dot = '⚪';
       status = t.closed;
+    } else if (live.length === 0) {
+      dot = '⚪';
+      status = t.noStations;
     } else {
-      const free = await freeStations(c.id, '', at);
-      dot = free > 0 ? '🟢' : '🟡';
-      status = free > 0 ? t.free(free, total) : t.full;
+      dot = anyFree ? '🟢' : '🟡';
+      status = live.map((x) => t.typeLine(x.type === 'PC' ? '🖥' : '🎮', x.type, x.free, x.total, x.off)).join('\n');
     }
     blocks.push(`${dot} <b>${h(name)}</b>\n📍 ${h(cityName(c.city, lang))}\n${status}`);
     const url = link(`/arenas/${c.slug}`);

@@ -93,7 +93,7 @@ function memberKeyboard(lang: 'ar' | 'en') {
     keyboard: [
       [{ text: b.book }, { text: b.favorites }],
       [{ text: b.bookings }, { text: b.tournaments }],
-      [{ text: b.support }],
+      [{ text: b.support }, { text: b.language }],
     ],
     resize_keyboard: true,
     is_persistent: true,

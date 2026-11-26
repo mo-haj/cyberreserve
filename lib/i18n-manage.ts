@@ -318,6 +318,8 @@ const ar = {
   close: 'إغلاق',
   // zones
   zonesHint: 'قسّم صالتك إلى أقسام (مثل القاعة الرئيسية أو غرفة VIP). كل قسم يظهر للاعبين كبطاقة فيها مواصفات أجهزته، ومع صورة إن أضفتها.',
+  zonesDrag: 'اضغط على القسم لتعديله، واسحبه للأعلى أو الأسفل لتغيير ترتيبه.',
+  dragHandle: 'اسحب لتغيير الترتيب (أو استخدم الأسهم ↑↓)',
   zonesEmpty: 'لا أقسام بعد. أضف قسماً ليرى اللاعبون مواصفات أجهزتك.',
   addZone: 'إضافة قسم',
   zoneNew: 'قسم جديد',
@@ -807,6 +809,8 @@ const en: typeof ar = {
   cancel: 'Cancel',
   close: 'Close',
   zonesHint: 'Split your arena into zones (e.g. Main hall, VIP room). Each zone shows players a card with its hardware, and a photo if you add one.',
+  zonesDrag: 'Tap a zone to edit it; drag it up or down to change the order.',
+  dragHandle: 'Drag to reorder (or use the ↑↓ keys)',
   zonesEmpty: 'No zones yet. Add one so players can see your hardware.',
   addZone: 'Add zone',
   zoneNew: 'New zone',

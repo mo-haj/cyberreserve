@@ -253,12 +253,21 @@ function Stations({ locale, m, data, owner, action }: { locale: Locale; m: Manag
     return { free, busy, off };
   }, [data.stations]);
 
-  const groups = TYPES.map((type) => ({
-    type,
-    list: data.stations.filter((s) => s.type === type),
-  })).filter((g) => g.list.length);
+  // Numbers count within a type (PC 1, PC 2… PS5 1), as on the arena page.
   const typeIndex = new Map<number, number>();
-  for (const g of groups) g.list.forEach((s, i) => typeIndex.set(s.pcNumber, i + 1));
+  for (const type of TYPES) data.stations.filter((s) => s.type === type).forEach((s, i) => typeIndex.set(s.pcNumber, i + 1));
+  // One section per zone (Main hall, VIP…), like the arena page; stations
+  // without a zone under their type. A type's zones stay together, VIP last.
+  const groups: { key: string; type: (typeof TYPES)[number]; zone: (typeof data.groups)[number] | null; list: ManageStation[] }[] = [];
+  for (const type of TYPES) {
+    const ofType = data.stations.filter((s) => s.type === type);
+    const zones = data.groups
+      .filter((z) => ofType.some((s) => s.groupId === z.id))
+      .sort((a, b) => Number(a.isVip) - Number(b.isVip));
+    for (const z of zones) groups.push({ key: `z:${z.id}`, type, zone: z, list: ofType.filter((s) => s.groupId === z.id) });
+    const loose = ofType.filter((s) => !s.groupId || !zones.some((z) => z.id === s.groupId));
+    if (loose.length) groups.push({ key: `t:${type}`, type, zone: null, list: loose });
+  }
   const nameOf = (s: ManageStation) => t.station.name(s.type, typeIndex.get(s.pcNumber) ?? s.pcNumber);
 
   return (
@@ -276,10 +285,11 @@ function Stations({ locale, m, data, owner, action }: { locale: Locale; m: Manag
       </div>
 
       {groups.map((g) => (
-        <section key={g.type} className="hud p-4 sm:p-5">
+        <section key={g.key} className={`hud p-4 sm:p-5 ${g.zone?.isVip ? 'shadow-[inset_0_0_0_1px_rgba(255,201,77,0.35)]' : ''}`}>
           <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-bold text-ink">
             <StationIcon type={g.type} className="h-5 w-6 text-violet-soft" />
-            {t.station.typeTitle[g.type]}
+            {g.zone ? groupName(g.zone, locale) || t.station.typeTitle[g.type] : t.station.typeTitle[g.type]}
+            {g.zone?.isVip && <span className="bg-gold px-1.5 py-px font-hud text-[0.625rem] font-bold text-void">VIP</span>}
             <span className="font-hud text-sm font-normal text-muted">{g.list.length}</span>
           </h2>
           <ul className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
@@ -1288,7 +1298,7 @@ function stationNames(locale: Locale, stations: ManageStation[]) {
   };
 }
 
-function Zones({
+export function Zones({
   locale,
   slug,
   m,
@@ -1317,13 +1327,90 @@ function Zones({
     }
   }, [before, data.groups]);
   const { index } = stationNames(locale, data.stations);
+  // Drag and drop: the order on screen while dragging (and until the saved order comes back).
+  const [order, setOrder] = useState<string[] | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const drag = useRef<{ id: string; y0: number; active: boolean } | null>(null);
+  const justDragged = useRef(false);
+  const orderNow = useRef<string[] | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const savedOrder = data.groups.map((g) => g.id).join(',');
+  useEffect(() => setOrder(null), [savedOrder]);
+  const shown = order ? order.map((id) => data.groups.find((g) => g.id === id)).filter((g): g is ManageGroup => !!g) : data.groups;
+
+  // Latest values for the window listeners below (they outlive a render).
+  const latest = useRef({ savedOrder, groups: data.groups, action });
+  latest.current = { savedOrder, groups: data.groups, action };
+
+  const moveDrag = (e: PointerEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    if (!d.active) {
+      if (Math.abs(e.clientY - d.y0) < 6) return; // a click, not a drag
+      d.active = true;
+      setDragging(d.id);
+    }
+    e.preventDefault();
+    // The row under the pointer: the dragged zone takes its place.
+    const rows = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-zone]') ?? []);
+    const ids = rows.map((r) => r.dataset.zone!);
+    let to = rows.findIndex((r) => {
+      const box = r.getBoundingClientRect();
+      return e.clientY < box.top + box.height / 2;
+    });
+    if (to < 0) to = rows.length - 1;
+    const from = ids.indexOf(d.id);
+    if (from < 0 || from === to) return;
+    const next = [...ids];
+    next.splice(from, 1);
+    next.splice(to, 0, d.id);
+    orderNow.current = next;
+    setOrder(next);
+  };
+  const endDrag = () => {
+    window.removeEventListener('pointermove', moveDrag);
+    window.removeEventListener('pointerup', endDrag);
+    window.removeEventListener('pointercancel', endDrag);
+    const d = drag.current;
+    drag.current = null;
+    if (!d?.active) return;
+    setDragging(null);
+    // The click that ends a drag must not open the editor.
+    justDragged.current = true;
+    setTimeout(() => (justDragged.current = false), 0);
+    const { savedOrder: saved, groups, action: act } = latest.current;
+    const ids = orderNow.current ?? groups.map((g) => g.id);
+    orderNow.current = null;
+    if (ids.join(',') !== saved) void act.run('order', { action: 'orderGroups', ids });
+  };
+  // Move and release are followed on the whole window: rows move under the
+  // pointer while dragging, so the release often lands outside the row.
+  const startDrag = (e: React.PointerEvent, id: string) => {
+    if (e.button !== 0) return;
+    drag.current = { id, y0: e.clientY, active: false };
+    orderNow.current = null;
+    window.addEventListener('pointermove', moveDrag, { passive: false });
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+  };
+  // Keyboard on the grip: ↑ / ↓ move one place.
+  const keyMove = (e: React.KeyboardEvent, id: string, i: number) => {
+    const by = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+    if (!by) return;
+    e.preventDefault();
+    if (i + by < 0 || i + by >= shown.length) return;
+    void action.run(`mv-${id}`, { action: 'moveGroup', id, by });
+  };
   // Keep the open editor in step with fresh data (e.g. after a photo upload).
   const current = editing && editing !== 'new' ? (data.groups.find((g) => g.id === editing.id) ?? null) : null;
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-prose text-sm text-muted">{m.zonesHint}</p>
+        <div className="max-w-prose space-y-1">
+          <p className="text-sm text-muted">{m.zonesHint}</p>
+          {data.groups.length > 0 && <p className="text-xs text-muted/80">{m.zonesDrag}</p>}
+        </div>
         <button type="button" className="btn-neon text-sm" onClick={() => setEditing('new')}>
           + {m.addZone}
         </button>
@@ -1332,12 +1419,44 @@ function Zones({
       {data.groups.length === 0 ? (
         <p className="hud p-6 text-muted">{m.zonesEmpty}</p>
       ) : (
-        <ul className="space-y-3">
-          {data.groups.map((g, i) => {
+        <ul ref={listRef} className="space-y-3">
+          {shown.map((g, i) => {
             const nums = g.stations.map((n) => index.get(n) ?? n);
             const summary = groupSummary({ ...g });
             return (
-              <li key={g.id} className={`hud flex flex-wrap items-center gap-4 p-4 ${g.isVip ? 'shadow-[inset_0_0_0_1px_rgba(255,201,77,0.45)]' : ''}`}>
+              <li
+                key={g.id}
+                data-zone={g.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`${m.edit}: ${groupName(g, locale) || m.unnamed}`}
+                // The whole row opens the editor; with a mouse, hold and drag it to reorder.
+                onClick={() => !justDragged.current && setEditing(g)}
+                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), setEditing(g))}
+                onPointerDown={(e) => e.pointerType === 'mouse' && startDrag(e, g.id)}
+                className={`hud flex cursor-pointer select-none flex-wrap items-center gap-4 p-4 transition-[box-shadow,background-color,transform] duration-150 hover:bg-violet/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan ${g.isVip ? 'shadow-[inset_0_0_0_1px_rgba(255,201,77,0.45)]' : ''} ${dragging === g.id ? 'z-10 scale-[1.01] cursor-grabbing bg-violet/15 outline outline-2 outline-violet' : ''}`}
+              >
+                {/* Grip: drag on a phone (touch), or ↑ / ↓ from the keyboard. */}
+                <span
+                  role="button"
+                  tabIndex={0}
+                  aria-label={m.dragHandle}
+                  title={m.dragHandle}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    keyMove(e, g.id, i);
+                  }}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    startDrag(e, g.id);
+                  }}
+                  className="grid h-10 w-7 shrink-0 cursor-grab touch-none place-items-center text-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan"
+                >
+                  <svg viewBox="0 0 10 16" className="h-4 w-2.5" fill="currentColor" aria-hidden="true">
+                    <circle cx="2" cy="2" r="1.5" /><circle cx="8" cy="2" r="1.5" /><circle cx="2" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="2" cy="14" r="1.5" /><circle cx="8" cy="14" r="1.5" />
+                  </svg>
+                </span>
                 {g.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={g.imageUrl} alt="" className="h-16 w-24 shrink-0 object-cover" />
@@ -1364,33 +1483,7 @@ function Zones({
                     </p>
                   )}
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <IconButton
-                    label={m.moveUp}
-                    onClick={() =>
-                      i > 0 &&
-                      action.run(`mv-${g.id}`, {
-                        action: 'moveGroup',
-                        id: g.id,
-                        by: -1,
-                      })
-                    }
-                  >
-                    <path d="M12 19V5M6 11l6-6 6 6" strokeLinecap="round" strokeLinejoin="round" />
-                  </IconButton>
-                  <IconButton
-                    label={m.moveDown}
-                    onClick={() =>
-                      i < data.groups.length - 1 &&
-                      action.run(`mv-${g.id}`, {
-                        action: 'moveGroup',
-                        id: g.id,
-                        by: 1,
-                      })
-                    }
-                  >
-                    <path d="M12 5v14M6 13l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-                  </IconButton>
+                <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
                   <IconButton label={m.edit} onClick={() => setEditing(g)}>
                     <path d="M4 20h4L19 9l-4-4L4 16v4z" strokeLinejoin="round" />
                   </IconButton>

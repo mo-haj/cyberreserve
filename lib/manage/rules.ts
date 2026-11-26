@@ -131,6 +131,8 @@ export const ManageAction = z.discriminatedUnion('action', [
   }),
   z.object({ action: z.literal('removeGroup'), id: Uuid }),
   z.object({ action: z.literal('moveGroup'), id: Uuid, by: z.union([z.literal(-1), z.literal(1)]) }),
+  // Drag and drop: the zones' new order, every id once.
+  z.object({ action: z.literal('orderGroups'), ids: z.array(Uuid).min(1).max(100) }),
   // Owners: photo + text posts on the arena page (photo uploaded separately).
   z.object({
     action: z.literal('savePost'),

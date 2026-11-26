@@ -660,6 +660,16 @@ export async function runAction(
       await prisma.$transaction(list.map((g, k) => prisma.stationGroup.update({ where: { id: g.id }, data: { position: k + 1 } })));
       return { ok: true };
     }
+    case 'orderGroups': {
+      const have = await prisma.stationGroup.findMany({ where: { cafeId }, select: { id: true } });
+      const mine = new Set(have.map((g) => g.id));
+      // Exactly this arena's zones, each once: a stale or foreign list changes nothing.
+      if (input.ids.length !== mine.size || new Set(input.ids).size !== input.ids.length || !input.ids.every((id) => mine.has(id))) {
+        return fail('not_found', 404);
+      }
+      await prisma.$transaction(input.ids.map((id, k) => prisma.stationGroup.update({ where: { id }, data: { position: k + 1 } })));
+      return { ok: true };
+    }
     case 'savePost': {
       const { action: _a, id, ...text } = input;
       void _a;
