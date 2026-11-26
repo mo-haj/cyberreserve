@@ -12,6 +12,7 @@ import { googleMapsUrl } from '@/lib/maps';
 import { parseLatLng } from '@/lib/manage/rules';
 import { Field, IconButton, TextArea } from '@/components/manage/fields';
 import { StatsTab, TournamentsTab } from '@/components/manage/engage';
+import { QrPosterButton } from '@/components/manage/qr-poster';
 import { SubscriptionNotice, Access, Team, Activity, Offers, Players, Posts } from '@/components/manage/tabs';
 import { StationPanel, StationTile } from '@/components/manage/floor';
 import PlayerBadge from '@/components/PlayerBadge';
@@ -209,6 +210,12 @@ export default function ManagePanel({
       {tab === 'bookings' && <Bookings locale={locale} m={m} data={data} action={action} canBan={owner} highlighted={highlighted} />}
       {tab === 'arena' && owner && (
         <>
+          <div className="flex justify-end">
+            <QrPosterButton
+              locale={locale}
+              arena={{ slug: data.arena.slug, nameAr: data.arena.nameAr, nameEn: data.arena.nameEn, city: data.arena.city, logo: data.images.logo }}
+            />
+          </div>
           <Images slug={slug} m={m} data={data} setData={setData} setError={action.setError} />
           <ArenaForm locale={locale} m={m} data={data} action={action} />
         </>
