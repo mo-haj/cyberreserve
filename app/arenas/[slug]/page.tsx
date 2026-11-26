@@ -256,12 +256,17 @@ export default async function ArenaPage({ params }: Params) {
                   <span className="font-hud text-xl font-bold text-ink">{arena.counts.total}</span>
                 </Fact>
                 <div className="col-span-2">
+                  {/* General to specific: city, area, then the street directions. */}
                   <Fact label={t.arena.address}>
-                    {pick(locale, arena.addressEn, arena.addressAr)}
-                    {' — '}
-                    {pick(locale, arena.areaEn, arena.areaAr)}
-                    {locale === 'ar' ? '، ' : ', '}
                     {cityName(arena.city, locale)}
+                    {locale === 'ar' ? '، ' : ', '}
+                    {pick(locale, arena.areaEn, arena.areaAr)}
+                    {pick(locale, arena.addressEn, arena.addressAr) && (
+                      <>
+                        {' — '}
+                        {pick(locale, arena.addressEn, arena.addressAr)}
+                      </>
+                    )}
                   </Fact>
                 </div>
               </dl>
