@@ -12,6 +12,8 @@ html {
      at most 24px. Percent keeps the browser's own font-size setting. */
   font-size: clamp(100%, 0.4167vw + 9.333px, 150%);
   scroll-behavior: smooth;
+  /* Jumps to a section land below the sticky header, not under it. */
+  scroll-padding-top: calc(var(--hdr-h, 4.5rem) + 0.75rem);
   background: #05060f;
   /* Keep the scrollbar's space even when a pop-up locks scrolling, so the
      page does not jump sideways when "How it works" opens. */

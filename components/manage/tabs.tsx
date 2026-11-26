@@ -1049,9 +1049,22 @@ export function Activity({ m, slug, locale }: { m: ManageText; slug: string; loc
   return (
     <div className="space-y-5">
       <section className="hud p-4 sm:p-6">
-        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <div className="mb-4 space-y-1.5">
           <h2 className="font-display text-lg font-bold text-ink">{m.onShiftNow}</h2>
-          <p className="max-w-prose text-xs text-muted">{m.shiftsHint}</p>
+          {/* One line; the rules open on demand. */}
+          <details className="group max-w-prose text-xs text-muted">
+            <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+              {m.shiftsHint}{' '}
+              <span className="whitespace-nowrap text-cyan hover:underline">
+                {m.shiftsHow} <span className="inline-block transition-transform group-open:rotate-180">▾</span>
+              </span>
+            </summary>
+            <ul className="mt-2 list-disc space-y-1 ps-5 marker:text-violet-soft">
+              {m.shiftsRules.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          </details>
         </div>
         {onNow.length === 0 ? (
           <p className="px-4 text-sm text-muted">{m.nobodyOnShift}</p>

@@ -11,6 +11,7 @@ import { background } from '@/lib/background';
 import { closeStaleShifts, logArena, noShiftAlerts } from '@/lib/activity';
 import { bookingOpen, subscriptionReminders } from '@/lib/subscription';
 import { askRatings, nightlySummaries, processFreeWatches } from '@/lib/engage';
+import { adminDailyReport } from '@/lib/admin-report';
 import { GROUP_SELECT } from '@/lib/cafes';
 import { offerLabel } from '@/lib/offers';
 import { BOOKING, checkRequest, isBlocked, priceWithOffers, reminderAt, type BookingCheck, type OfferKind } from '@/lib/booking/rules';
@@ -922,6 +923,7 @@ export async function tick(): Promise<void> {
     ['summaries', nightlySummaries],
     ['no shift', noShiftAlerts],
     ['subscriptions', subscriptionReminders],
+    ['admin report', adminDailyReport],
   ] as const) {
     await job(at).catch((err) => console.error(`tick ${name}`, err));
   }

@@ -625,3 +625,9 @@ model ArenaRequest {
   @@index([status, createdAt])
   @@index([userId])
 }
+
+/// Once-a-day jobs that must run exactly once (e.g. "admin-report:2026-11-25").
+model JobRun {
+  key    String   @id
+  doneAt DateTime @default(now()) @db.Timestamptz(3)
+}

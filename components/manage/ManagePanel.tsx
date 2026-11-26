@@ -17,7 +17,7 @@ import { DragGrip, dragCard, stopRow, useDragOrder } from '@/components/manage/d
 import { SubscriptionNotice, Access, Team, Activity, Offers, Players, Posts } from '@/components/manage/tabs';
 import { StationPanel, StationTile } from '@/components/manage/floor';
 import PlayerBadge from '@/components/PlayerBadge';
-import { CancelDialog } from '@/components/manage/moderation';
+import { CancelDialog, ConfirmDialog } from '@/components/manage/moderation';
 import { AlertCards, AlertsToggle, useBookingAlerts } from '@/components/manage/alerts';
 import { shrinkImage } from '@/lib/manage/shrink';
 import { GENRES, type GenreKey } from '@/prisma/games-data';
@@ -152,7 +152,8 @@ export default function ManagePanel({
   return (
     <div className="space-y-5">
       <AlertCards locale={locale} m={m} items={alerts.fresh} onDismiss={alerts.dismiss} onOpen={() => setTab('bookings')} />
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      {/* On large screens the tabs stick under the header while scrolling (on a phone they would take half the screen). */}
+      <div className="flex flex-wrap items-end justify-between gap-3 lg:sticky lg:top-[var(--hdr-h,4rem)] lg:z-30 lg:-mx-4 lg:bg-[rgba(5,6,15,0.6)] lg:px-4 lg:py-2.5 lg:backdrop-blur-md">
         <nav role="tablist" className="flex flex-wrap items-end gap-x-6 gap-y-3">
           {tabGroups.map((g) => (
             <div key={g.name} className="flex flex-col gap-1.5">
@@ -178,7 +179,7 @@ export default function ManagePanel({
           ))}
         </nav>
         <div className="flex flex-wrap items-center gap-3">
-          <ShiftButton m={m} since={data.myShift} action={action} />
+          <ShiftButton m={m} since={data.myShift} action={action} owner={owner} />
           <AlertsToggle m={m} on={alerts.on} onToggle={alerts.toggle} onTest={alerts.askSystem} />
         </div>
       </div>
@@ -496,18 +497,39 @@ function AddStations({
 // ------------------------------------------------------------------ shift
 
 /** Start / end the viewer's own shift; everything they do in it is logged under it. */
-function ShiftButton({ m, since, action }: { m: ManageText; since: string | null; action: Action }) {
+function ShiftButton({ m, since, action, owner }: { m: ManageText; since: string | null; action: Action; owner: boolean }) {
+  const [asking, setAsking] = useState(false);
   return (
     <div className="flex items-center gap-2">
       <span className={`text-xs ${since ? 'text-free' : 'text-muted'}`}>{since ? m.shiftOn(formatDamascusTime(new Date(since))) : m.shiftOff}</span>
-      <button
-        type="button"
-        className={since ? 'btn-ghost text-sm' : 'btn-neon text-sm'}
-        disabled={!!action.busy}
-        onClick={() => action.run('shift', { action: 'shift', on: !since })}
-      >
-        {since ? m.shiftEnd : m.shiftStart}
-      </button>
+      {since ? (
+        // Ending is in red and asks first: a shift ended by mistake stops the booking messages.
+        <button
+          type="button"
+          className="px-4 py-2 text-sm font-semibold text-busy shadow-[inset_0_0_0_1px_rgba(255,45,85,0.65)] transition-colors hover:bg-busy hover:text-white disabled:opacity-50"
+          disabled={!!action.busy}
+          onClick={() => setAsking(true)}
+        >
+          {m.shiftEnd}
+        </button>
+      ) : (
+        <button type="button" className="btn-neon text-sm" disabled={!!action.busy} onClick={() => action.run('shift', { action: 'shift', on: true })}>
+          {m.shiftStart}
+        </button>
+      )}
+      {asking && since && (
+        <ConfirmDialog
+          title={m.shiftEndAsk}
+          body={m.shiftEndBody(formatDamascusTime(new Date(since)), owner)}
+          confirmLabel={m.shiftEnd}
+          cancelLabel={m.cancel}
+          danger
+          onClose={() => setAsking(false)}
+          onConfirm={async () => {
+            await action.run('shift', { action: 'shift', on: false });
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -208,6 +208,10 @@ const ar = {
   clearHours: 'مسح',
   shiftStart: 'ابدأ ورديتي',
   shiftEnd: 'أنهِ ورديتي',
+  shiftEndAsk: 'إنهاء ورديتك؟',
+  shiftEndBody: (since: string, owner: boolean) =>
+    `ورديتك بدأت الساعة ${since}، وسيُسجَّل وقت انتهائها الآن.` +
+    (owner ? '' : '\nبعد الإنهاء لن تصلك رسائل الحجوزات على تيليغرام حتى تبدأ وردية جديدة.'),
   shiftOn: (t: string) => `في الوردية منذ ${t}`,
   shiftOff: 'لست في وردية الآن',
   shiftsTitle: 'الورديات',
@@ -237,7 +241,14 @@ const ar = {
   pagePrev: 'الصفحة السابقة',
   pageNext: 'الصفحة التالية',
   pageOf: (a: number, b: number) => `${a} من ${b}`,
-  shiftsHint: 'كل موظف يضغط «ابدأ ورديتي» عند وصوله و«أنهِ ورديتي» عند مغادرته. إذا نسي، تبدأ ورديته تلقائيًا عند أول ضغطة على زر. رسائل الحجوزات على تيليغرام تصل للموظف فقط وهو في ورديته، وللمالك دائمًا. وإذا بقيت الصالة مفتوحة بلا أحد في الوردية 15 دقيقة، يصل للمالك تنبيه على تيليغرام. الوردية المنسية تُغلق بعد 16 ساعة.',
+  shiftsHint: 'الموظف يضغط «ابدأ ورديتي» عند وصوله و«أنهِ ورديتي» عند مغادرته.',
+  shiftsHow: 'كيف تعمل؟',
+  shiftsRules: [
+    'إذا نسي، تبدأ ورديته تلقائيًا عند أول ضغطة على زر.',
+    'رسائل الحجوزات على تيليغرام تصل للموظف وهو في ورديته فقط، وللمالك دائمًا.',
+    'إذا بقيت الصالة مفتوحة 15 دقيقة بلا أحد في الوردية، يصل للمالك تنبيه.',
+    'الوردية المنسية تُغلق وحدها بعد 16 ساعة.',
+  ],
   shiftsEmpty: 'لا ورديات بعد.',
   shiftAuto: 'بدأت تلقائيًا',
   shiftAutoHint: 'نسي الضغط على «ابدأ ورديتي»، فبدأت الوردية عند أول ضغطة على زر في الصالة.',
@@ -701,6 +712,10 @@ const en: typeof ar = {
   clearHours: 'Clear',
   shiftStart: 'Start my shift',
   shiftEnd: 'End my shift',
+  shiftEndAsk: 'End your shift?',
+  shiftEndBody: (since: string, owner: boolean) =>
+    `Your shift started at ${since}; it ends now.` +
+    (owner ? '' : '\nAfter that, booking messages on Telegram stop until you start a new shift.'),
   shiftOn: (t) => `On shift since ${t}`,
   shiftOff: 'Not on shift',
   shiftsTitle: 'Shifts',
@@ -730,7 +745,14 @@ const en: typeof ar = {
   pagePrev: 'Previous page',
   pageNext: 'Next page',
   pageOf: (a, b) => `${a} of ${b}`,
-  shiftsHint: 'Each staff member presses “Start my shift” when they arrive and “End my shift” when they leave. If they forget, the shift starts at their first button press. Booking messages on Telegram reach staff only while on shift, and owners always. If the arena is open with nobody on shift for 15 minutes, the owner gets a Telegram alert. A forgotten shift closes after 16 hours.',
+  shiftsHint: 'Staff press “Start my shift” when they arrive and “End my shift” when they leave.',
+  shiftsHow: 'How it works',
+  shiftsRules: [
+    'If they forget, the shift starts at their first button press.',
+    'Booking messages on Telegram reach staff only while on shift, and owners always.',
+    'If the arena is open with nobody on shift for 15 minutes, the owner gets an alert.',
+    'A forgotten shift closes by itself after 16 hours.',
+  ],
   shiftsEmpty: 'No shifts yet.',
   shiftAuto: 'auto-started',
   shiftAutoHint: 'They forgot “Start my shift”, so the shift began at their first floor button press.',

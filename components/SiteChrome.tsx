@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { StickyHeader } from '@/components/StickyHeader';
 import { supportEmail } from '@/lib/site';
 import HowItWorks from '@/components/HowItWorks';
 import MobileMenu from '@/components/MobileMenu';
@@ -15,10 +16,10 @@ export function Logo({ label }: { label: string }) {
         alt=""
         width={44}
         height={44}
-        className="h-9 w-9 drop-shadow-[0_0_10px_rgba(157,92,255,0.45)] transition-transform group-hover:scale-110 min-[380px]:h-11 min-[380px]:w-11"
+        className="h-9 w-9 drop-shadow-[0_0_10px_rgba(157,92,255,0.45)] transition-[transform,width,height] duration-200 group-hover:scale-110 min-[380px]:h-11 min-[380px]:w-11 group-data-[scrolled=true]/hdr:h-8 group-data-[scrolled=true]/hdr:w-8 min-[380px]:group-data-[scrolled=true]/hdr:h-9 min-[380px]:group-data-[scrolled=true]/hdr:w-9"
       />
       {/* The brand name is the same in both languages. */}
-      <span dir="ltr" className="font-display text-xl font-bold tracking-tight text-ink min-[380px]:text-2xl">
+      <span dir="ltr" className="font-display text-xl font-bold tracking-tight text-ink transition-[font-size] duration-200 min-[380px]:text-2xl min-[380px]:group-data-[scrolled=true]/hdr:text-xl">
         L<span className="text-violet-soft">3</span>ib
       </span>
     </Link>
@@ -50,8 +51,8 @@ export function SiteHeader({
   );
 
   return (
-    <header className="relative z-30">
-      <div className="mx-auto flex w-full max-w-site items-center justify-between gap-2 px-3 py-4 min-[380px]:px-4 lg:px-8 lg:py-3">
+    <StickyHeader>
+      <div className="mx-auto flex w-full max-w-site items-center justify-between gap-2 px-3 py-4 transition-[padding] duration-200 group-data-[scrolled=true]/hdr:py-2 min-[380px]:px-4 lg:px-8 lg:py-3 lg:group-data-[scrolled=true]/hdr:py-1.5">
         <Logo label={t.nav.home} />
 
         {/* Tablet and desktop */}
@@ -123,7 +124,7 @@ export function SiteHeader({
           </MobileMenu>
         </div>
       </div>
-    </header>
+    </StickyHeader>
   );
 }
 
