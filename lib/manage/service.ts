@@ -821,6 +821,19 @@ export async function runAction(
       ]);
       return { ok: true };
     }
+    case 'orderPosts': {
+      const have = await prisma.cafeSection.findMany({ where: { cafeId }, select: { id: true } });
+      const mine = new Set(have.map((p) => p.id));
+      if (input.ids.length !== mine.size || new Set(input.ids).size !== input.ids.length || !input.ids.every((id) => mine.has(id))) {
+        return fail('not_found', 404);
+      }
+      // Positions are unique per arena: park them out of the way first.
+      await prisma.$transaction([
+        ...input.ids.map((id, k) => prisma.cafeSection.update({ where: { id }, data: { position: -(k + 1) } })),
+        ...input.ids.map((id, k) => prisma.cafeSection.update({ where: { id }, data: { position: k + 1 } })),
+      ]);
+      return { ok: true };
+    }
     case 'setPublished': {
       await prisma.cafe.update({ where: { id: cafeId }, data: { isPublished: input.on } });
       await audit({ published: input.on });

@@ -11,6 +11,7 @@ import { dictionary, pick, type Locale } from '@/lib/i18n';
 import { money, offerLabel } from '@/lib/offers';
 import PlayerBadge, { badgeName } from '@/components/PlayerBadge';
 import { BanDialog, ConfirmDialog } from '@/components/manage/moderation';
+import { DragGrip, dragCard, stopRow, useDragOrder } from '@/components/manage/drag-list';
 import type { ManageText } from '@/lib/i18n-manage';
 import type { ManageData } from '@/lib/manage/service';
 import type { ActivityRow, ShiftRow } from '@/lib/activity';
@@ -211,11 +212,21 @@ export function Posts({
     }
   }, [before, data.posts]);
   const current = editing && editing !== 'new' ? data.posts.find((p) => p.id === editing.id) ?? null : null;
+  // Tap to edit, hold and drag to reorder (components/manage/drag-list).
+  const { shown, listRef, rowProps, gripProps, lifted } = useDragOrder({
+    items: data.posts,
+    onSave: (ids) => void action.run('order', { action: 'orderPosts', ids }),
+    onOpen: (p) => setEditing(p),
+    onMove: (id, by) => void action.run(`mvp-${id}`, { action: 'movePost', id, by }),
+  });
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-prose text-sm text-muted">{m.postsHint}</p>
+        <div className="max-w-prose space-y-1">
+          <p className="text-sm text-muted">{m.postsHint}</p>
+          {data.posts.length > 0 && <p className="text-xs text-muted/80">{m.postsDrag}</p>}
+        </div>
         <button type="button" className="btn-neon text-sm" onClick={() => setEditing('new')}>
           + {m.addPost}
         </button>
@@ -223,42 +234,40 @@ export function Posts({
       {data.posts.length === 0 ? (
         <p className="hud p-6 text-muted">{m.postsEmpty}</p>
       ) : (
-        <ul className="space-y-3">
-          {data.posts.map((p, i) => (
-            <li key={p.id} className="hud flex flex-wrap items-center gap-4 p-4">
-              {p.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={p.imageUrl} alt="" className="h-16 w-24 shrink-0 object-cover" />
-              ) : (
-                <span className="grid h-16 w-24 shrink-0 place-items-center bg-void/60 text-[0.6875rem] text-muted">{m.noPhoto}</span>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold text-ink">{pick(locale, p.titleEn, p.titleAr) || '—'}</p>
-                <p className="line-clamp-2 text-sm text-muted">{pick(locale, p.bodyEn, p.bodyAr)}</p>
+        <ul ref={listRef} className="space-y-3">
+          {shown.map((p, i) => (
+            <li key={p.id} {...rowProps(p, i, `${m.edit}: ${pick(locale, p.titleEn, p.titleAr) || '—'}`)}>
+              <div className={`hud flex items-center gap-3 p-3 sm:gap-4 sm:p-4 ${dragCard(lifted(p.id))}`}>
+                <DragGrip {...gripProps(p, i, m.dragHandle)} />
+                {p.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.imageUrl} alt="" className="aspect-[3/2] w-20 shrink-0 object-cover sm:w-28" />
+                ) : (
+                  <span className="grid aspect-[3/2] w-20 shrink-0 place-items-center bg-void/60 text-[0.6875rem] text-muted sm:w-28">{m.noPhoto}</span>
+                )}
+                {/* Long posts: title on one line, body on two, never wider than a readable line. */}
+                <div className="min-w-0 max-w-3xl flex-1">
+                  <p className="truncate font-semibold text-ink">{pick(locale, p.titleEn, p.titleAr) || '—'}</p>
+                  <p className="line-clamp-2 text-sm text-muted">{pick(locale, p.bodyEn, p.bodyAr)}</p>
+                </div>
+                <div className="ms-auto flex shrink-0 items-center gap-1" {...stopRow}>
+                  <IconButton label={m.edit} onClick={() => setEditing(p)}>
+                    <path d="M4 20h4L19 9l-4-4L4 16v4z" strokeLinejoin="round" />
+                  </IconButton>
+                  <IconButton
+                    label={confirm === p.id ? m.confirmRemovePost : m.removePost}
+                    danger={confirm === p.id}
+                    onClick={() => {
+                      if (confirm !== p.id) return setConfirm(p.id);
+                      setConfirm(null);
+                      void action.run(`rmp-${p.id}`, { action: 'removePost', id: p.id });
+                    }}
+                  >
+                    <path d="M5 7h14M10 11v6M14 11v6M7 7l1 13h8l1-13M9 7V4h6v3" strokeLinejoin="round" strokeLinecap="round" />
+                  </IconButton>
+                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <IconButton label={m.moveUp} onClick={() => i > 0 && action.run(`mvp-${p.id}`, { action: 'movePost', id: p.id, by: -1 })}>
-                  <path d="M12 19V5M6 11l6-6 6 6" strokeLinecap="round" strokeLinejoin="round" />
-                </IconButton>
-                <IconButton label={m.moveDown} onClick={() => i < data.posts.length - 1 && action.run(`mvp-${p.id}`, { action: 'movePost', id: p.id, by: 1 })}>
-                  <path d="M12 5v14M6 13l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-                </IconButton>
-                <IconButton label={m.edit} onClick={() => setEditing(p)}>
-                  <path d="M4 20h4L19 9l-4-4L4 16v4z" strokeLinejoin="round" />
-                </IconButton>
-                <IconButton
-                  label={confirm === p.id ? m.confirmRemovePost : m.removePost}
-                  danger={confirm === p.id}
-                  onClick={() => {
-                    if (confirm !== p.id) return setConfirm(p.id);
-                    setConfirm(null);
-                    void action.run(`rmp-${p.id}`, { action: 'removePost', id: p.id });
-                  }}
-                >
-                  <path d="M5 7h14M10 11v6M14 11v6M7 7l1 13h8l1-13M9 7V4h6v3" strokeLinejoin="round" strokeLinecap="round" />
-                </IconButton>
-              </div>
-              {confirm === p.id && <p className="panel-in w-full text-xs text-busy">{m.confirmRemovePost}</p>}
+              {confirm === p.id && <p className="panel-in mt-1 text-xs text-busy">{m.confirmRemovePost}</p>}
             </li>
           ))}
         </ul>

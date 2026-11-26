@@ -13,6 +13,7 @@ import { parseLatLng } from '@/lib/manage/rules';
 import { Field, IconButton, TextArea } from '@/components/manage/fields';
 import { StatsTab, TournamentsTab } from '@/components/manage/engage';
 import { QrPosterButton } from '@/components/manage/qr-poster';
+import { DragGrip, dragCard, stopRow, useDragOrder } from '@/components/manage/drag-list';
 import { SubscriptionNotice, Access, Team, Activity, Offers, Players, Posts } from '@/components/manage/tabs';
 import { StationPanel, StationTile } from '@/components/manage/floor';
 import PlayerBadge from '@/components/PlayerBadge';
@@ -1327,130 +1328,13 @@ export function Zones({
     }
   }, [before, data.groups]);
   const { index } = stationNames(locale, data.stations);
-  // Drag and drop. The list keeps its DOM order while dragging: the picked
-  // zone follows the pointer and the others slide aside (CSS transforms), so
-  // it feels like lifting a card. The new order is set on release.
-  const [order, setOrder] = useState<string[] | null>(null);
-  const savedOrder = data.groups.map((g) => g.id).join(',');
-  useEffect(() => setOrder(null), [savedOrder]);
-  const shown = order ? order.map((id) => data.groups.find((g) => g.id === id)).filter((g): g is ManageGroup => !!g) : data.groups;
-
-  type DragView = { id: string; from: number; to: number; dy: number; step: number; lifted: boolean };
-  const [dragView, setDragView] = useState<DragView | null>(null);
-  const [pressing, setPressing] = useState<string | null>(null);
-  const drag = useRef<{ id: string; y0: number; lifted: boolean; holdTimer: number; boxes: { top: number; height: number }[]; from: number; to: number; step: number } | null>(null);
-  const justDragged = useRef(false);
-  const listRef = useRef<HTMLUListElement>(null);
-  // Latest values for the window listeners below (they outlive a render).
-  const latest = useRef({ savedOrder, shown, action });
-  latest.current = { savedOrder, shown, action };
-
-  const HOLD_MS = 180;
-  const lift = () => {
-    const d = drag.current;
-    if (!d || d.lifted) return;
-    const rows = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-zone]') ?? []);
-    d.boxes = rows.map((r) => {
-      const box = r.getBoundingClientRect();
-      return { top: box.top, height: box.height };
-    });
-    d.from = rows.findIndex((r) => r.dataset.zone === d.id);
-    // How far a neighbour slides: the picked card's height plus the gap.
-    d.step = d.boxes.length > 1 ? d.boxes[1].top - d.boxes[0].top : (d.boxes[0]?.height ?? 0);
-    if (d.from > 0) d.step = d.boxes[d.from].top - d.boxes[d.from - 1].top;
-    d.to = d.from;
-    d.lifted = true;
-    setPressing(null);
-    setDragView({ id: d.id, from: d.from, to: d.from, dy: 0, step: d.step, lifted: true });
-    document.body.style.cursor = 'grabbing';
-    document.body.style.userSelect = 'none';
-  };
-
-  const moveDrag = (e: PointerEvent) => {
-    const d = drag.current;
-    if (!d) return;
-    const dy = e.clientY - d.y0;
-    if (!d.lifted) {
-      if (Math.abs(dy) < 6) return; // still a press (or a click)
-      window.clearTimeout(d.holdTimer);
-      lift();
-    }
-    e.preventDefault();
-    // Where the picked card's centre is now → its new place.
-    const centre = d.boxes[d.from].top + d.boxes[d.from].height / 2 + dy;
-    let to = 0;
-    d.boxes.forEach((b, k) => {
-      if (k !== d.from && b.top + b.height / 2 < centre) to += 1;
-    });
-    d.to = to;
-    setDragView({ id: d.id, from: d.from, to, dy, step: d.step, lifted: true });
-  };
-
-  const endDrag = () => {
-    window.removeEventListener('pointermove', moveDrag);
-    window.removeEventListener('pointerup', endDrag);
-    window.removeEventListener('pointercancel', endDrag);
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-    const d = drag.current;
-    drag.current = null;
-    setPressing(null);
-    if (!d) return;
-    window.clearTimeout(d.holdTimer);
-    if (!d.lifted) return; // a click: the row's onClick opens the editor
-    // A lift (even without moving) is not a click.
-    justDragged.current = true;
-    setTimeout(() => (justDragged.current = false), 0);
-    setDragView(null);
-    if (d.to === d.from) return;
-    const { savedOrder: saved, shown: now, action: act } = latest.current;
-    const ids = now.map((g) => g.id);
-    const [moved] = ids.splice(d.from, 1);
-    ids.splice(d.to, 0, moved);
-    setOrder(ids);
-    if (ids.join(',') !== saved) void act.run('order', { action: 'orderGroups', ids });
-  };
-
-  const startDrag = (e: React.PointerEvent, id: string, instant = false) => {
-    if (e.button !== 0) return;
-    drag.current = { id, y0: e.clientY, lifted: false, holdTimer: 0, boxes: [], from: 0, to: 0, step: 0 };
-    window.addEventListener('pointermove', moveDrag, { passive: false });
-    window.addEventListener('pointerup', endDrag);
-    window.addEventListener('pointercancel', endDrag);
-    if (instant) return lift();
-    // Pressed: the card sinks a little at once, and lifts after a short hold.
-    setPressing(id);
-    drag.current.holdTimer = window.setTimeout(lift, HOLD_MS);
-  };
-
-  /** How a row looks while something is being dragged. */
-  const dragStyle = (i: number, id: string): React.CSSProperties | undefined => {
-    const v = dragView;
-    if (!v) return pressing === id ? { transform: 'scale(0.985)', transition: 'transform 150ms ease-out' } : undefined;
-    if (id === v.id) {
-      return {
-        transform: `translateY(${v.dy}px) scale(1.025)`,
-        transition: 'transform 0ms',
-        zIndex: 20,
-        position: 'relative',
-        filter: 'drop-shadow(0 16px 22px rgba(0,0,0,0.6)) drop-shadow(0 0 14px rgba(157,92,255,0.45))',
-        cursor: 'grabbing',
-      };
-    }
-    let shift = 0;
-    if (v.from < v.to && i > v.from && i <= v.to) shift = -v.step;
-    if (v.to < v.from && i >= v.to && i < v.from) shift = v.step;
-    return { transform: `translateY(${shift}px)`, transition: 'transform 180ms cubic-bezier(0.2, 0, 0, 1)' };
-  };
-
-  // Keyboard on the grip: ↑ / ↓ move one place.
-  const keyMove = (e: React.KeyboardEvent, id: string, i: number) => {
-    const by = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
-    if (!by) return;
-    e.preventDefault();
-    if (i + by < 0 || i + by >= shown.length) return;
-    void action.run(`mv-${id}`, { action: 'moveGroup', id, by });
-  };
+  // Tap to edit, hold and drag to reorder (components/manage/drag-list).
+  const { shown, listRef, rowProps, gripProps, lifted } = useDragOrder({
+    items: data.groups,
+    onSave: (ids) => void action.run('order', { action: 'orderGroups', ids }),
+    onOpen: (g) => setEditing(g),
+    onMove: (id, by) => void action.run(`mv-${id}`, { action: 'moveGroup', id, by }),
+  });
   // Keep the open editor in step with fresh data (e.g. after a photo upload).
   const current = editing && editing !== 'new' ? (data.groups.find((g) => g.id === editing.id) ?? null) : null;
 
@@ -1474,45 +1358,10 @@ export function Zones({
             const nums = g.stations.map((n) => index.get(n) ?? n);
             const summary = groupSummary({ ...g });
             return (
-              <li
-                key={g.id}
-                data-zone={g.id}
-                role="button"
-                tabIndex={0}
-                aria-label={`${m.edit}: ${groupName(g, locale) || m.unnamed}`}
-                // The whole row opens the editor; with a mouse, hold and drag it to reorder.
-                onClick={() => !justDragged.current && setEditing(g)}
-                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), setEditing(g))}
-                onPointerDown={(e) => e.pointerType === 'mouse' && startDrag(e, g.id)}
-                style={dragStyle(i, g.id)}
-                className="group/zone cursor-pointer select-none focus-visible:outline-none"
-              >
+              <li key={g.id} {...rowProps(g, i, `${m.edit}: ${groupName(g, locale) || m.unnamed}`)}>
                 {/* The card (clipped corners) sits inside the row, so the lifted row's shadow is not clipped. */}
-                <div
-                  className={`hud flex flex-wrap items-center gap-4 p-4 group-hover/zone:bg-violet/[0.06] group-focus-visible/zone:ring-2 group-focus-visible/zone:ring-cyan ${g.isVip ? 'shadow-[inset_0_0_0_1px_rgba(255,201,77,0.45)]' : ''} ${dragView?.id === g.id ? '!bg-panel2 shadow-[inset_0_0_0_2px_#9D5CFF]' : ''}`}
-                >
-                {/* Grip: drag on a phone (touch), or ↑ / ↓ from the keyboard. */}
-                <span
-                  role="button"
-                  tabIndex={0}
-                  aria-label={m.dragHandle}
-                  title={m.dragHandle}
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    keyMove(e, g.id, i);
-                  }}
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    // From the grip the card lifts at once (it is clearly a drag).
-                    startDrag(e, g.id, true);
-                  }}
-                  className="grid h-10 w-7 shrink-0 cursor-grab touch-none place-items-center text-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan"
-                >
-                  <svg viewBox="0 0 10 16" className="h-4 w-2.5" fill="currentColor" aria-hidden="true">
-                    <circle cx="2" cy="2" r="1.5" /><circle cx="8" cy="2" r="1.5" /><circle cx="2" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="2" cy="14" r="1.5" /><circle cx="8" cy="14" r="1.5" />
-                  </svg>
-                </span>
+                <div className={`hud flex flex-wrap items-center gap-4 p-4 ${g.isVip ? 'shadow-[inset_0_0_0_1px_rgba(255,201,77,0.45)]' : ''} ${dragCard(lifted(g.id))}`}>
+                <DragGrip {...gripProps(g, i, m.dragHandle)} />
                 {g.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={g.imageUrl} alt="" className="h-16 w-24 shrink-0 object-cover" />
@@ -1539,7 +1388,7 @@ export function Zones({
                     </p>
                   )}
                 </div>
-                <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+                <div className="flex shrink-0 items-center gap-1" {...stopRow}>
                   <IconButton label={m.edit} onClick={() => setEditing(g)}>
                     <path d="M4 20h4L19 9l-4-4L4 16v4z" strokeLinejoin="round" />
                   </IconButton>
