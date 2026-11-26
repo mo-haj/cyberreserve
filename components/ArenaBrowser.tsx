@@ -264,12 +264,15 @@ export default function ArenaBrowser({
                 <Link
                   href={`/arenas/${a.slug}`}
                   onClick={(e) => {
-                    // Desktop: select and preview. Phones: open the arena page.
-                    if (window.matchMedia('(min-width: 1024px)').matches) {
+                    // Desktop: the first click previews the arena beside the
+                    // list, a click on the one already shown opens its page.
+                    // Phones: open the arena page at once.
+                    if (window.matchMedia('(min-width: 1024px)').matches && !active) {
                       e.preventDefault();
                       setSelected(a.slug);
                     }
                   }}
+                  title={active ? t.home.openArena : undefined}
                   aria-current={a.slug === current?.slug ? 'true' : undefined}
                   className={`group flex gap-3 p-2.5 transition-colors [clip-path:polygon(10px_0,100%_0,100%_calc(100%-10px),calc(100%-10px)_100%,0_100%,0_10px)] ${
                     active
@@ -357,9 +360,14 @@ export default function ArenaBrowser({
       {/* Selected arena, live (desktop) */}
       {current && (
         <section className="hud hidden min-h-0 min-w-0 flex-col overflow-y-auto p-5 cr-scroll lg:flex" aria-live="polite">
-          <div className="relative -mx-5 -mt-5 mb-5 h-44 overflow-hidden">
+          {/* The whole header (photo, logo, name) opens the arena page. */}
+          <Link
+            href={`/arenas/${current.slug}`}
+            title={t.home.openArena}
+            className="group/cover relative -mx-5 -mt-5 mb-5 block h-44 overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan"
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={current.coverImage} alt="" className="h-full w-full object-cover object-top" />
+            <img src={current.coverImage} alt="" className="h-full w-full object-cover object-top transition-transform duration-500 group-hover/cover:scale-[1.03]" />
             <div className="absolute inset-0 bg-gradient-to-t from-panel via-panel/70 to-panel/10" />
             <div className="absolute inset-x-5 bottom-3 flex items-end justify-between gap-4">
               <div>
@@ -368,7 +376,10 @@ export default function ArenaBrowser({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={current.logoImage} alt="" className="h-14 w-14 shrink-0 rounded-full bg-void/80 object-cover shadow-[0_0_0_2px_rgba(157,92,255,0.6)]" />
                   )}
-                  {pick(locale, current.nameEn, current.nameAr)}
+                  <span className="decoration-violet-soft decoration-2 underline-offset-8 group-hover/cover:underline">{pick(locale, current.nameEn, current.nameAr)}</span>
+                  <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-violet-soft opacity-60 transition-opacity group-hover/cover:opacity-100 rtl:-scale-x-100" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+                    <path d="M7 17 17 7M9 7h8v8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                 </h2>
                 <p className="text-sm text-muted">
                   {pick(locale, current.areaEn, current.areaAr)}
@@ -383,7 +394,7 @@ export default function ArenaBrowser({
                 <span className="block text-xs text-muted">{t.arena.freeOf(current.counts.free, current.counts.total)}</span>
               </p>
             </div>
-          </div>
+          </Link>
           <OffersStrip locale={locale} offers={current.offers} compact className="mt-3" />
           <LiveFloor
             key={current.slug}

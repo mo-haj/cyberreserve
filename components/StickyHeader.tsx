@@ -12,7 +12,14 @@ export function StickyHeader({ children }: { children: React.ReactNode }) {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
+    // Two thresholds, far apart: the header turns compact after 64px of
+    // scrolling and back only near the very top. With one threshold, the
+    // header's own shrink moved the page under it and it flipped back and
+    // forth (shaking) when the scroll stopped right at the edge.
+    const onScroll = () => {
+      const y = window.scrollY;
+      setScrolled((was) => (was ? y > 4 : y > 64));
+    };
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
     const el = ref.current;

@@ -56,7 +56,8 @@ export default function JoinForm({ locale }: { locale: Locale }) {
         <Field label={t.area} value={f.area} onChange={set('area')} maxLength={80} required />
         <Field label={t.address} value={f.address} onChange={set('address')} maxLength={160} required />
         <Field label={t.stations} type="number" min={1} max={300} value={f.stations} onChange={set('stations')} dir="ltr" required />
-        <Field label={t.software} hint={t.softwareHint} value={f.software} onChange={set('software')} maxLength={60} dir="ltr" />
+        {/* "Current arena software" (CafePro, PanCafe…) is hidden for now: a later plan
+            (linking with those programs). The server still accepts it, empty by default. */}
       </div>
       <TextArea label={t.note} value={f.note} onChange={set('note')} maxLength={500} rows={3} />
       {error && (
