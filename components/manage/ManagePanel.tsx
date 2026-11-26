@@ -1327,72 +1327,122 @@ export function Zones({
     }
   }, [before, data.groups]);
   const { index } = stationNames(locale, data.stations);
-  // Drag and drop: the order on screen while dragging (and until the saved order comes back).
+  // Drag and drop. The list keeps its DOM order while dragging: the picked
+  // zone follows the pointer and the others slide aside (CSS transforms), so
+  // it feels like lifting a card. The new order is set on release.
   const [order, setOrder] = useState<string[] | null>(null);
-  const [dragging, setDragging] = useState<string | null>(null);
-  const drag = useRef<{ id: string; y0: number; active: boolean } | null>(null);
-  const justDragged = useRef(false);
-  const orderNow = useRef<string[] | null>(null);
-  const listRef = useRef<HTMLUListElement>(null);
   const savedOrder = data.groups.map((g) => g.id).join(',');
   useEffect(() => setOrder(null), [savedOrder]);
   const shown = order ? order.map((id) => data.groups.find((g) => g.id === id)).filter((g): g is ManageGroup => !!g) : data.groups;
 
+  type DragView = { id: string; from: number; to: number; dy: number; step: number; lifted: boolean };
+  const [dragView, setDragView] = useState<DragView | null>(null);
+  const [pressing, setPressing] = useState<string | null>(null);
+  const drag = useRef<{ id: string; y0: number; lifted: boolean; holdTimer: number; boxes: { top: number; height: number }[]; from: number; to: number; step: number } | null>(null);
+  const justDragged = useRef(false);
+  const listRef = useRef<HTMLUListElement>(null);
   // Latest values for the window listeners below (they outlive a render).
-  const latest = useRef({ savedOrder, groups: data.groups, action });
-  latest.current = { savedOrder, groups: data.groups, action };
+  const latest = useRef({ savedOrder, shown, action });
+  latest.current = { savedOrder, shown, action };
+
+  const HOLD_MS = 180;
+  const lift = () => {
+    const d = drag.current;
+    if (!d || d.lifted) return;
+    const rows = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-zone]') ?? []);
+    d.boxes = rows.map((r) => {
+      const box = r.getBoundingClientRect();
+      return { top: box.top, height: box.height };
+    });
+    d.from = rows.findIndex((r) => r.dataset.zone === d.id);
+    // How far a neighbour slides: the picked card's height plus the gap.
+    d.step = d.boxes.length > 1 ? d.boxes[1].top - d.boxes[0].top : (d.boxes[0]?.height ?? 0);
+    if (d.from > 0) d.step = d.boxes[d.from].top - d.boxes[d.from - 1].top;
+    d.to = d.from;
+    d.lifted = true;
+    setPressing(null);
+    setDragView({ id: d.id, from: d.from, to: d.from, dy: 0, step: d.step, lifted: true });
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+  };
 
   const moveDrag = (e: PointerEvent) => {
     const d = drag.current;
     if (!d) return;
-    if (!d.active) {
-      if (Math.abs(e.clientY - d.y0) < 6) return; // a click, not a drag
-      d.active = true;
-      setDragging(d.id);
+    const dy = e.clientY - d.y0;
+    if (!d.lifted) {
+      if (Math.abs(dy) < 6) return; // still a press (or a click)
+      window.clearTimeout(d.holdTimer);
+      lift();
     }
     e.preventDefault();
-    // The row under the pointer: the dragged zone takes its place.
-    const rows = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-zone]') ?? []);
-    const ids = rows.map((r) => r.dataset.zone!);
-    let to = rows.findIndex((r) => {
-      const box = r.getBoundingClientRect();
-      return e.clientY < box.top + box.height / 2;
+    // Where the picked card's centre is now → its new place.
+    const centre = d.boxes[d.from].top + d.boxes[d.from].height / 2 + dy;
+    let to = 0;
+    d.boxes.forEach((b, k) => {
+      if (k !== d.from && b.top + b.height / 2 < centre) to += 1;
     });
-    if (to < 0) to = rows.length - 1;
-    const from = ids.indexOf(d.id);
-    if (from < 0 || from === to) return;
-    const next = [...ids];
-    next.splice(from, 1);
-    next.splice(to, 0, d.id);
-    orderNow.current = next;
-    setOrder(next);
+    d.to = to;
+    setDragView({ id: d.id, from: d.from, to, dy, step: d.step, lifted: true });
   };
+
   const endDrag = () => {
     window.removeEventListener('pointermove', moveDrag);
     window.removeEventListener('pointerup', endDrag);
     window.removeEventListener('pointercancel', endDrag);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
     const d = drag.current;
     drag.current = null;
-    if (!d?.active) return;
-    setDragging(null);
-    // The click that ends a drag must not open the editor.
+    setPressing(null);
+    if (!d) return;
+    window.clearTimeout(d.holdTimer);
+    if (!d.lifted) return; // a click: the row's onClick opens the editor
+    // A lift (even without moving) is not a click.
     justDragged.current = true;
     setTimeout(() => (justDragged.current = false), 0);
-    const { savedOrder: saved, groups, action: act } = latest.current;
-    const ids = orderNow.current ?? groups.map((g) => g.id);
-    orderNow.current = null;
+    setDragView(null);
+    if (d.to === d.from) return;
+    const { savedOrder: saved, shown: now, action: act } = latest.current;
+    const ids = now.map((g) => g.id);
+    const [moved] = ids.splice(d.from, 1);
+    ids.splice(d.to, 0, moved);
+    setOrder(ids);
     if (ids.join(',') !== saved) void act.run('order', { action: 'orderGroups', ids });
   };
-  // Move and release are followed on the whole window: rows move under the
-  // pointer while dragging, so the release often lands outside the row.
-  const startDrag = (e: React.PointerEvent, id: string) => {
+
+  const startDrag = (e: React.PointerEvent, id: string, instant = false) => {
     if (e.button !== 0) return;
-    drag.current = { id, y0: e.clientY, active: false };
-    orderNow.current = null;
+    drag.current = { id, y0: e.clientY, lifted: false, holdTimer: 0, boxes: [], from: 0, to: 0, step: 0 };
     window.addEventListener('pointermove', moveDrag, { passive: false });
     window.addEventListener('pointerup', endDrag);
     window.addEventListener('pointercancel', endDrag);
+    if (instant) return lift();
+    // Pressed: the card sinks a little at once, and lifts after a short hold.
+    setPressing(id);
+    drag.current.holdTimer = window.setTimeout(lift, HOLD_MS);
   };
+
+  /** How a row looks while something is being dragged. */
+  const dragStyle = (i: number, id: string): React.CSSProperties | undefined => {
+    const v = dragView;
+    if (!v) return pressing === id ? { transform: 'scale(0.985)', transition: 'transform 150ms ease-out' } : undefined;
+    if (id === v.id) {
+      return {
+        transform: `translateY(${v.dy}px) scale(1.025)`,
+        transition: 'transform 0ms',
+        zIndex: 20,
+        position: 'relative',
+        filter: 'drop-shadow(0 16px 22px rgba(0,0,0,0.6)) drop-shadow(0 0 14px rgba(157,92,255,0.45))',
+        cursor: 'grabbing',
+      };
+    }
+    let shift = 0;
+    if (v.from < v.to && i > v.from && i <= v.to) shift = -v.step;
+    if (v.to < v.from && i >= v.to && i < v.from) shift = v.step;
+    return { transform: `translateY(${shift}px)`, transition: 'transform 180ms cubic-bezier(0.2, 0, 0, 1)' };
+  };
+
   // Keyboard on the grip: ↑ / ↓ move one place.
   const keyMove = (e: React.KeyboardEvent, id: string, i: number) => {
     const by = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
@@ -1434,8 +1484,13 @@ export function Zones({
                 onClick={() => !justDragged.current && setEditing(g)}
                 onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), setEditing(g))}
                 onPointerDown={(e) => e.pointerType === 'mouse' && startDrag(e, g.id)}
-                className={`hud flex cursor-pointer select-none flex-wrap items-center gap-4 p-4 transition-[box-shadow,background-color,transform] duration-150 hover:bg-violet/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan ${g.isVip ? 'shadow-[inset_0_0_0_1px_rgba(255,201,77,0.45)]' : ''} ${dragging === g.id ? 'z-10 scale-[1.01] cursor-grabbing bg-violet/15 outline outline-2 outline-violet' : ''}`}
+                style={dragStyle(i, g.id)}
+                className="group/zone cursor-pointer select-none focus-visible:outline-none"
               >
+                {/* The card (clipped corners) sits inside the row, so the lifted row's shadow is not clipped. */}
+                <div
+                  className={`hud flex flex-wrap items-center gap-4 p-4 group-hover/zone:bg-violet/[0.06] group-focus-visible/zone:ring-2 group-focus-visible/zone:ring-cyan ${g.isVip ? 'shadow-[inset_0_0_0_1px_rgba(255,201,77,0.45)]' : ''} ${dragView?.id === g.id ? '!bg-panel2 shadow-[inset_0_0_0_2px_#9D5CFF]' : ''}`}
+                >
                 {/* Grip: drag on a phone (touch), or ↑ / ↓ from the keyboard. */}
                 <span
                   role="button"
@@ -1449,7 +1504,8 @@ export function Zones({
                   }}
                   onPointerDown={(e) => {
                     e.stopPropagation();
-                    startDrag(e, g.id);
+                    // From the grip the card lifts at once (it is clearly a drag).
+                    startDrag(e, g.id, true);
                   }}
                   className="grid h-10 w-7 shrink-0 cursor-grab touch-none place-items-center text-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan"
                 >
@@ -1503,6 +1559,7 @@ export function Zones({
                   </IconButton>
                 </div>
                 {confirm === g.id && <p className="panel-in w-full text-xs text-busy">{m.confirmRemoveZone}</p>}
+                </div>
               </li>
             );
           })}
