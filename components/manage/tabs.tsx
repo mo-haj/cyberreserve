@@ -237,7 +237,7 @@ export function Posts({
         <ul ref={listRef} className="space-y-3">
           {shown.map((p, i) => (
             <li key={p.id} {...rowProps(p, i, `${m.edit}: ${pick(locale, p.titleEn, p.titleAr) || '—'}`)}>
-              <div className={`hud flex items-center gap-3 p-3 sm:gap-4 sm:p-4 ${dragCard(lifted(p.id))}`}>
+              <div className={`hud flex items-center gap-3 p-3 sm:gap-4 sm:p-4 ${dragCard(lifted(p.id))} ${p.hidden ? 'opacity-55' : ''}`}>
                 <DragGrip {...gripProps(p, i, m.dragHandle)} />
                 {p.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -247,10 +247,24 @@ export function Posts({
                 )}
                 {/* Long posts: title on one line, body on two, never wider than a readable line. */}
                 <div className="min-w-0 max-w-3xl flex-1">
-                  <p className="truncate font-semibold text-ink">{pick(locale, p.titleEn, p.titleAr) || '—'}</p>
+                  <p className="flex min-w-0 items-center gap-2 font-semibold text-ink">
+                    <span className="truncate">{pick(locale, p.titleEn, p.titleAr) || '—'}</span>
+                    {p.hidden && <span className="shrink-0 bg-off/40 px-1.5 py-px text-[0.6875rem] font-semibold text-ink/80">{m.postHiddenTag}</span>}
+                  </p>
                   <p className="line-clamp-2 text-sm text-muted">{pick(locale, p.bodyEn, p.bodyAr)}</p>
                 </div>
                 <div className="ms-auto flex shrink-0 items-center gap-1" {...stopRow}>
+                  {/* Hide: keep the post for later without showing it on the arena page. */}
+                  <IconButton
+                    label={p.hidden ? m.showPost : m.hidePost}
+                    onClick={() => action.run(`hp-${p.id}`, { action: 'hidePost', id: p.id, hidden: !p.hidden })}
+                  >
+                    {p.hidden ? (
+                      <path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A9.8 9.8 0 0 1 12 5c5 0 9 5 9 7a11 11 0 0 1-2.4 3.5M6.6 6.6C4.4 8 3 10.4 3 12c0 2 4 7 9 7a9.6 9.6 0 0 0 5.4-1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    ) : (
+                      <path d="M3 12c0-2 4-7 9-7s9 5 9 7-4 7-9 7-9-5-9-7zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" strokeLinejoin="round" />
+                    )}
+                  </IconButton>
                   <IconButton label={m.edit} onClick={() => setEditing(p)}>
                     <path d="M4 20h4L19 9l-4-4L4 16v4z" strokeLinejoin="round" />
                   </IconButton>

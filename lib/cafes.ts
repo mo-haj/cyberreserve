@@ -260,7 +260,7 @@ export async function getCafe(slug: string): Promise<CafeDetail | null> {
     where: { slug, isPublished: true },
     include: {
       devices: deviceQuery(at),
-      sections: { orderBy: { position: 'asc' } },
+      sections: { where: { hidden: false }, orderBy: { position: 'asc' } },
       offers: { orderBy: [{ hours: 'asc' }, { createdAt: 'asc' }] },
       games: gamesQuery,
       stationGroups: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: GROUP_SELECT },

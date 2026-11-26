@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { StationIcon } from '@/components/StationIcons';
-import { CITIES, cityName } from '@/lib/cities';
+import { cityName } from '@/lib/cities';
 import { dictionary, pick, type Locale } from '@/lib/i18n';
 import { manageText, type ManageText } from '@/lib/i18n-manage';
 import type { ManageData, ManageGroup, ManageStation } from '@/lib/manage/service';
@@ -13,6 +13,7 @@ import { parseLatLng } from '@/lib/manage/rules';
 import { Field, IconButton, TextArea } from '@/components/manage/fields';
 import { StatsTab, TournamentsTab } from '@/components/manage/engage';
 import { QrPosterButton } from '@/components/manage/qr-poster';
+import CitySelect from '@/components/CitySelect';
 import { DragGrip, dragCard, stopRow, useDragOrder } from '@/components/manage/drag-list';
 import { SubscriptionNotice, Access, Team, Activity, Offers, Players, Posts } from '@/components/manage/tabs';
 import { StationPanel, StationTile } from '@/components/manage/floor';
@@ -536,7 +537,7 @@ function ShiftButton({ m, since, action, owner }: { m: ManageText; since: string
 
 // ------------------------------------------------------------------ arena
 
-function ArenaForm({ locale, m, data, action }: { locale: Locale; m: ManageText; data: ManageData; action: Action }) {
+export function ArenaForm({ locale, m, data, action }: { locale: Locale; m: ManageText; data: ManageData; action: Action }) {
   const [f, setF] = useState(data.arena);
   const [saved, setSaved] = useState(false);
   const router = useRouter();
@@ -572,61 +573,54 @@ function ArenaForm({ locale, m, data, action }: { locale: Locale; m: ManageText;
           <Field label={m[b as 'nameEn']} value={f[b]} onChange={set(b)} maxLength={max} dir="ltr" required={!b.startsWith('tagline')} />
         </div>
       ))}
-      <fieldset>
-        <legend className="text-sm font-semibold text-ink">{m.city}</legend>
-        <div className="mt-2 grid grid-cols-2 gap-2 min-[420px]:grid-cols-3 lg:grid-cols-5">
-          {CITIES.map((c) => (
+      {/* One row: opening hours, then the city (a dropdown, not 14 buttons). */}
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_16rem]">
+        <fieldset className="min-w-0 space-y-2">
+          <legend className="text-sm font-semibold text-ink">{m.openingHours}</legend>
+          <p className="text-xs text-muted">{m.openingHoursHint}</p>
+          <div className="flex flex-wrap items-end gap-4">
+            <label className="text-sm text-muted">
+              {m.opensAt}
+              <input
+                type="time"
+                value={f.openTime}
+                onChange={set('openTime')}
+                dir="ltr"
+                className="mt-1 block bg-void/70 px-3 py-2 font-hud text-ink shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] outline-none focus:shadow-[inset_0_0_0_1px_rgba(41,224,255,0.8)]"
+              />
+            </label>
+            <label className="text-sm text-muted">
+              {m.closesAt}
+              <input
+                type="time"
+                value={f.closeTime}
+                onChange={set('closeTime')}
+                dir="ltr"
+                className="mt-1 block bg-void/70 px-3 py-2 font-hud text-ink shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] outline-none focus:shadow-[inset_0_0_0_1px_rgba(41,224,255,0.8)]"
+              />
+            </label>
             <button
-              key={c.key}
               type="button"
-              aria-pressed={f.city === c.key}
-              onClick={() => setF((x) => ({ ...x, city: c.key }))}
-              className={`city-option px-3 py-2 text-sm ${f.city === c.key ? 'city-option-on text-ink' : 'text-muted hover:text-ink'}`}
+              aria-pressed={!!f.openTime && f.openTime === f.closeTime}
+              onClick={() => setF((x) => ({ ...x, openTime: '00:00', closeTime: '00:00' }))}
+              className={`city-option px-3 py-2 text-sm ${f.openTime && f.openTime === f.closeTime ? 'city-option-on text-ink' : 'text-muted hover:text-ink'}`}
             >
-              {pick(locale, c.en, c.ar)}
+              {m.open24}
             </button>
-          ))}
+            {(f.openTime || f.closeTime) && (
+              <button type="button" className="text-xs text-muted hover:text-busy" onClick={() => setF((x) => ({ ...x, openTime: '', closeTime: '' }))}>
+                {m.clearHours}
+              </button>
+            )}
+          </div>
+        </fieldset>
+        <div>
+          <span className="text-sm font-semibold text-ink">{m.city}</span>
+          <div className="mt-2">
+            <CitySelect locale={locale} label={m.city} value={f.city} onChange={(city) => setF((x) => ({ ...x, city }))} />
+          </div>
         </div>
-      </fieldset>
-      <fieldset className="space-y-2">
-        <legend className="text-sm font-semibold text-ink">{m.openingHours}</legend>
-        <p className="text-xs text-muted">{m.openingHoursHint}</p>
-        <div className="flex flex-wrap items-end gap-4">
-          <label className="text-sm text-muted">
-            {m.opensAt}
-            <input
-              type="time"
-              value={f.openTime}
-              onChange={set('openTime')}
-              dir="ltr"
-              className="mt-1 block bg-void/70 px-3 py-2 font-hud text-ink shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] outline-none focus:shadow-[inset_0_0_0_1px_rgba(41,224,255,0.8)]"
-            />
-          </label>
-          <label className="text-sm text-muted">
-            {m.closesAt}
-            <input
-              type="time"
-              value={f.closeTime}
-              onChange={set('closeTime')}
-              dir="ltr"
-              className="mt-1 block bg-void/70 px-3 py-2 font-hud text-ink shadow-[inset_0_0_0_1px_rgba(157,92,255,0.35)] outline-none focus:shadow-[inset_0_0_0_1px_rgba(41,224,255,0.8)]"
-            />
-          </label>
-          <button
-            type="button"
-            aria-pressed={!!f.openTime && f.openTime === f.closeTime}
-            onClick={() => setF((x) => ({ ...x, openTime: '00:00', closeTime: '00:00' }))}
-            className={`city-option px-3 py-2 text-sm ${f.openTime && f.openTime === f.closeTime ? 'city-option-on text-ink' : 'text-muted hover:text-ink'}`}
-          >
-            {m.open24}
-          </button>
-          {(f.openTime || f.closeTime) && (
-            <button type="button" className="text-xs text-muted hover:text-busy" onClick={() => setF((x) => ({ ...x, openTime: '', closeTime: '' }))}>
-              {m.clearHours}
-            </button>
-          )}
-        </div>
-      </fieldset>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label={m.dayRate} value={f.hourlyRate} onChange={set('hourlyRate')} inputMode="decimal" dir="ltr" required />
         <Field label={m.nightRate} value={f.nightShiftRate} onChange={set('nightShiftRate')} inputMode="decimal" dir="ltr" required />

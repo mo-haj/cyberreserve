@@ -254,7 +254,7 @@ export async function getManageData(cafeId: string, viewer: { role: 'OWNER' | 'S
       },
       games: { select: { game: { select: { slug: true } } } },
       stationGroups: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: GROUP_SELECT },
-      sections: { orderBy: { position: 'asc' }, select: { id: true, titleAr: true, titleEn: true, bodyAr: true, bodyEn: true, imageUrl: true } },
+      sections: { orderBy: { position: 'asc' }, select: { id: true, titleAr: true, titleEn: true, bodyAr: true, bodyEn: true, imageUrl: true, hidden: true } },
       offers: { orderBy: [{ hours: 'asc' }, { createdAt: 'asc' }], select: { id: true, hours: true, kind: true, price: true, stationType: true, noteAr: true, noteEn: true } },
       members: {
         orderBy: { createdAt: 'asc' },
@@ -819,6 +819,12 @@ export async function runAction(
         ...list.map((p, k) => prisma.cafeSection.update({ where: { id: p.id }, data: { position: -(k + 1) } })),
         ...list.map((p, k) => prisma.cafeSection.update({ where: { id: p.id }, data: { position: k + 1 } })),
       ]);
+      return { ok: true };
+    }
+    case 'hidePost': {
+      const done = await prisma.cafeSection.updateMany({ where: { id: input.id, cafeId }, data: { hidden: input.hidden } });
+      if (done.count === 0) return fail('not_found', 404);
+      await audit({ post: input.id, hidden: input.hidden });
       return { ok: true };
     }
     case 'orderPosts': {

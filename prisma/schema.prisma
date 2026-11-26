@@ -268,6 +268,8 @@ model CafeSection {
   bodyAr   String
   /// /media/<id> photo uploaded by the owner, or a demo picture. Empty = text-only post.
   imageUrl String @default("")
+  /// Kept for later: not on the arena page until shown again.
+  hidden   Boolean @default(false)
 
   cafe Cafe @relation(fields: [cafeId], references: [id], onDelete: Cascade)
 
