@@ -326,7 +326,8 @@ export async function getManageData(cafeId: string, viewer: { role: 'OWNER' | 'S
     tournaments: ownerView ? await ownerTournaments(cafeId) : [],
     /** The viewer's own open shift here (start time), or null. */
     myShift: (await openShift(cafeId, viewer.userId))?.startedAt.toISOString() ?? null,
-    members: (viewer.superAdmin ? cafe.members : []).map((m) => ({
+    // Super admin: everyone. Owner: the team (to manage their staff). Staff: nobody.
+    members: (ownerView ? cafe.members : []).map((m) => ({
       userId: m.user.id,
       role: m.role,
       name: m.user.nickname ?? m.user.fullName ?? m.user.name,
@@ -346,6 +347,7 @@ export type ActionError =
   | 'forbidden'
   | 'bad_confirm'
   | 'player_banned'
+  | 'owner_by_admin'
   | 'not_found'
   | 'busy'
   | 'not_busy'
@@ -815,11 +817,18 @@ export async function runAction(
       return { ok: true };
     }
     case 'setMember': {
+      // An arena owner manages their staff; owners are added by the super admin.
+      if (!member.superAdmin && input.role !== 'STAFF') return fail('owner_by_admin', 403);
       const phone = normalizePhone(input.phone);
       if (!phone) return fail('bad_phone');
       const who = await prisma.user.findUnique({ where: { phone }, select: { id: true } });
       // They must have signed in once with Telegram (that is how the phone is known).
       if (!who) return fail('no_such_player', 404);
+      if (!member.superAdmin) {
+        const now_ = await prisma.arenaMember.findUnique({ where: { cafeId_userId: { cafeId, userId: who.id } }, select: { role: true } });
+        // Not a way to turn an owner (or yourself) into staff.
+        if (now_?.role === 'OWNER' || who.id === userId) return fail('owner_by_admin', 403);
+      }
       await prisma.arenaMember.upsert({
         where: { cafeId_userId: { cafeId, userId: who.id } },
         update: { role: input.role },
@@ -829,6 +838,10 @@ export async function runAction(
       return { ok: true };
     }
     case 'removeMember': {
+      if (!member.superAdmin) {
+        const row = await prisma.arenaMember.findUnique({ where: { cafeId_userId: { cafeId, userId: input.userId } }, select: { role: true } });
+        if (row?.role !== 'STAFF') return fail('owner_by_admin', 403);
+      }
       await prisma.arenaMember.deleteMany({ where: { cafeId, userId: input.userId } });
       await audit({ member: input.userId, removed: true });
       return { ok: true };

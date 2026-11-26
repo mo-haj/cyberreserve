@@ -403,9 +403,6 @@ function PostEditor({
 // ------------------------------------------------------------------ access (super admin)
 
 export function Access({ m, data, action }: { m: ManageText; data: ManageData; action: Action }) {
-  const [phone, setPhone] = useState('');
-  const [role, setRole] = useState<'OWNER' | 'STAFF'>('OWNER');
-  const [confirm, setConfirm] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   return (
@@ -514,13 +511,26 @@ export function Access({ m, data, action }: { m: ManageText; data: ManageData; a
         />
       )}
 
-      <section className="hud space-y-4 p-5 sm:p-6">
+      <Team m={m} data={data} action={action} admin />
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ team
+
+/** The arena's people. Super admin (admin): owners and staff. Owner: adds and removes staff. */
+export function Team({ m, data, action, admin = false }: { m: ManageText; data: ManageData; action: Action; admin?: boolean }) {
+  const [phone, setPhone] = useState('');
+  const [role, setRole] = useState<'OWNER' | 'STAFF'>(admin ? 'OWNER' : 'STAFF');
+  const [confirm, setConfirm] = useState<string | null>(null);
+  return (
+    <section className="hud space-y-4 p-5 sm:p-6">
         <div>
-          <h2 className="font-display text-xl font-bold text-ink">{m.members}</h2>
-          <p className="mt-1 text-sm text-muted">{m.membersHint}</p>
+          <h2 className="font-display text-xl font-bold text-ink">{admin ? m.members : m.team}</h2>
+          <p className="mt-1 text-sm text-muted">{admin ? m.membersHint : m.teamHint}</p>
         </div>
         {data.members.length === 0 ? (
-          <p className="text-sm text-muted">{m.membersEmpty}</p>
+          <p className="text-sm text-muted">{admin ? m.membersEmpty : m.teamEmpty}</p>
         ) : (
           <ul className="space-y-2">
             {data.members.map((x) => (
@@ -534,6 +544,7 @@ export function Access({ m, data, action }: { m: ManageText; data: ManageData; a
                 <span dir="ltr" className="font-hud text-xs text-muted">
                   {x.phone}
                 </span>
+                {(admin || x.role === 'STAFF') && (
                 <button
                   type="button"
                   className={`text-xs ${confirm === x.userId ? 'text-busy' : 'text-muted hover:text-busy'}`}
@@ -545,6 +556,7 @@ export function Access({ m, data, action }: { m: ManageText; data: ManageData; a
                 >
                   {confirm === x.userId ? m.confirmRemoveMember : m.removeMember}
                 </button>
+                )}
               </li>
             ))}
           </ul>
@@ -553,12 +565,14 @@ export function Access({ m, data, action }: { m: ManageText; data: ManageData; a
           className="flex flex-wrap items-end gap-3"
           onSubmit={async (e) => {
             e.preventDefault();
-            if (await action.run('member', { action: 'setMember', phone, role })) setPhone('');
+            if (await action.run('member', { action: 'setMember', phone, role: admin ? role : 'STAFF' })) setPhone('');
           }}
         >
           <div className="min-w-[12rem] flex-1">
             <Field label={m.memberPhone} value={phone} onChange={(e) => setPhone(e.target.value)} required dir="ltr" inputMode="tel" placeholder="09XX XXX XXX" />
           </div>
+          {/* An owner adds staff only; owners are added by the super admin. */}
+          {admin && (
           <div className="flex gap-2">
             {(['OWNER', 'STAFF'] as const).map((r) => (
               <button
@@ -572,12 +586,12 @@ export function Access({ m, data, action }: { m: ManageText; data: ManageData; a
               </button>
             ))}
           </div>
+          )}
           <button type="submit" className="btn-neon" disabled={!!action.busy}>
-            {m.addMember}
+            {admin ? m.addMember : m.addStaff}
           </button>
         </form>
       </section>
-    </div>
   );
 }
 

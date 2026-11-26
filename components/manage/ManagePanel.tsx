@@ -12,7 +12,7 @@ import { googleMapsUrl } from '@/lib/maps';
 import { parseLatLng } from '@/lib/manage/rules';
 import { Field, IconButton, TextArea } from '@/components/manage/fields';
 import { StatsTab, TournamentsTab } from '@/components/manage/engage';
-import { SubscriptionNotice, Access, Activity, Offers, Players, Posts } from '@/components/manage/tabs';
+import { SubscriptionNotice, Access, Team, Activity, Offers, Players, Posts } from '@/components/manage/tabs';
 import { StationPanel, StationTile } from '@/components/manage/floor';
 import PlayerBadge from '@/components/PlayerBadge';
 import { CancelDialog } from '@/components/manage/moderation';
@@ -25,7 +25,7 @@ import { formatDamascusTime, toDamascusParts } from '@/lib/time';
 // details and games. Every change goes through POST /api/manage/<slug>,
 // which answers with the fresh data.
 
-type Tab = 'stations' | 'zones' | 'bookings' | 'players' | 'posts' | 'offers' | 'arena' | 'games' | 'owners' | 'activity' | 'tournaments' | 'stats';
+type Tab = 'stations' | 'zones' | 'bookings' | 'players' | 'posts' | 'offers' | 'arena' | 'games' | 'owners' | 'team' | 'activity' | 'tournaments' | 'stats';
 const TYPES = ['PC', 'PS5', 'PS4', 'XBOX'] as const;
 const POLL_MS = 10_000;
 
@@ -139,7 +139,8 @@ export default function ManagePanel({
               { key: 'players' as Tab, label: m.tabs.players },
               { key: 'stats' as Tab, label: m.tabs.stats },
               { key: 'activity' as Tab, label: m.tabs.activity },
-              ...(superAdmin ? [{ key: 'owners' as Tab, label: m.tabs.owners }] : []),
+              // Super admin: the whole team lives in «الإدارة»; an owner gets «الفريق».
+              ...(superAdmin ? [{ key: 'owners' as Tab, label: m.tabs.owners }] : [{ key: 'team' as Tab, label: m.tabs.team }]),
             ],
           },
         ]
@@ -217,6 +218,7 @@ export default function ManagePanel({
       {tab === 'players' && owner && <Players locale={locale} m={m} data={data} action={action} />}
       {tab === 'posts' && owner && <Posts locale={locale} slug={slug} m={m} data={data} setData={setData} action={action} />}
       {tab === 'owners' && superAdmin && <Access m={m} data={data} action={action} />}
+      {tab === 'team' && !superAdmin && <Team m={m} data={data} action={action} />}
       {tab === 'activity' && owner && <Activity m={m} slug={slug} locale={locale} />}
       {tab === 'tournaments' && owner && <TournamentsTab locale={locale} m={m} data={data} action={action} />}
       {tab === 'stats' && owner && <StatsTab m={m} slug={slug} superAdmin={superAdmin} action={action} />}

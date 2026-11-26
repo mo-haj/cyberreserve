@@ -3,11 +3,16 @@ import assert from 'node:assert/strict';
 import { ManageAction, NewArena, canDo, slugify } from '../lib/manage/rules';
 import { isSuperAdminTelegram } from '../lib/auth/admin';
 
-test('only the site owner may publish arenas and choose owners', () => {
-  for (const a of ['setPublished', 'setMember', 'removeMember'] as const) {
+test('only the site owner may publish arenas; owners manage their staff', () => {
+  for (const a of ['setPublished', 'deleteArena', 'subscription'] as const) {
     assert.equal(canDo('OWNER', a), false, `owner ${a}`);
     assert.equal(canDo('STAFF', a), false, `staff ${a}`);
     assert.equal(canDo('OWNER', a, true), true, `super ${a}`);
+  }
+  // An owner may add/remove members (the service limits it to STAFF); staff may not.
+  for (const a of ['setMember', 'removeMember'] as const) {
+    assert.equal(canDo('OWNER', a), true, `owner ${a}`);
+    assert.equal(canDo('STAFF', a), false, `staff ${a}`);
   }
   // Owners manage their own posts; staff do not.
   assert.equal(canDo('OWNER', 'savePost'), true);

@@ -197,8 +197,9 @@ export type ManageAction = z.infer<typeof ManageAction>;
 /** What STAFF may do; OWNER may do everything. */
 export const STAFF_ACTIONS = new Set<ManageAction['action']>(['walkIn', 'freeNow', 'extend', 'maintenance', 'markBooking', 'shift']);
 
-/** Only the site owner (super admin) may do these, in any arena. */
-export const SUPER_ACTIONS = new Set<ManageAction['action']>(['setPublished', 'setMember', 'removeMember', 'promoteGame', 'hideReview', 'setSearchVisible', 'subscription', 'deleteArena']);
+/** Only the site owner (super admin) may do these, in any arena.
+ *  (setMember / removeMember: an owner may too, for STAFF only; checked in the service.) */
+export const SUPER_ACTIONS = new Set<ManageAction['action']>(['setPublished', 'promoteGame', 'hideReview', 'setSearchVisible', 'subscription', 'deleteArena']);
 
 export function canDo(role: 'OWNER' | 'STAFF', action: ManageAction['action'], superAdmin = false): boolean {
   if (superAdmin) return true;
