@@ -113,15 +113,46 @@ function toChoice(v: typeof blankBan): BanChoice | null {
   return { minutes: Math.min(n * unit.minutes, 5 * 365 * 24 * 60), reason: v.reason.trim() };
 }
 
-export function Shell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+export function Shell({
+  title,
+  onClose,
+  children,
+  dismissable = false,
+  closeLabel = '',
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  /** Close with an ✕ in the corner and by clicking outside the window. */
+  dismissable?: boolean;
+  closeLabel?: string;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     ref.current?.showModal();
   }, []);
   return (
-    <dialog ref={ref} onClose={onClose} className="cr-modal m-auto w-[calc(100%-1.5rem)] max-w-lg overflow-clip bg-transparent p-0 text-ink">
-      <div className="panel-in hud flex max-h-[calc(100dvh-3rem)] flex-col" style={{ background: '#0B0F24' }}>
-        <h2 className="p-6 pb-2 font-display text-xl font-bold text-ink">{title}</h2>
+    <dialog
+      ref={ref}
+      onClose={onClose}
+      // A click on the dialog element itself is a click on the dimmed backdrop around the window.
+      onClick={dismissable ? (e) => e.target === ref.current && ref.current?.close() : undefined}
+      className="cr-modal m-auto w-[calc(100%-1.5rem)] max-w-lg overflow-clip bg-transparent p-0 text-ink"
+    >
+      <div className="panel-in hud relative flex max-h-[calc(100dvh-3rem)] flex-col" style={{ background: '#0B0F24' }}>
+        {dismissable && (
+          <button
+            type="button"
+            aria-label={closeLabel}
+            title={closeLabel}
+            onClick={() => ref.current?.close()}
+            // "end": top-left in Arabic, top-right in English.
+            className="absolute end-5 top-4 z-10 grid h-9 w-9 place-items-center text-lg text-muted hover:bg-violet/15 hover:text-ink"
+          >
+            ✕
+          </button>
+        )}
+        <h2 className={`p-6 pb-2 font-display text-xl font-bold text-ink ${dismissable ? 'pe-14' : ''}`}>{title}</h2>
         {children}
       </div>
     </dialog>

@@ -283,7 +283,7 @@ function QrPoster({ arena, locale, onClose }: { arena: Arena; locale: Locale; on
   };
 
   return (
-    <Shell title={t.title} onClose={onClose}>
+    <Shell title={t.title} onClose={onClose} dismissable closeLabel={t.close}>
       <div className="space-y-4 overflow-y-auto px-6 pb-2">
         <p className="text-sm text-muted">{t.hint}</p>
         <div className="flex min-h-[18rem] items-center justify-center bg-void/60 p-3">
@@ -295,9 +295,6 @@ function QrPoster({ arena, locale, onClose }: { arena: Arena; locale: Locale; on
         </div>
       </div>
       <div className="flex flex-wrap items-center justify-end gap-3 p-6 pt-4">
-        <button type="button" className="text-sm text-muted hover:text-ink" onClick={onClose}>
-          {t.close}
-        </button>
         <button type="button" className="btn-ghost px-4 py-2 text-sm" disabled={!png} onClick={print}>
           {t.print}
         </button>
